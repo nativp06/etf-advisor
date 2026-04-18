@@ -427,6 +427,37 @@ async function fetchAllBatch(symbols){
   return {};
 }
 
+// ── LIVE QUOTE FETCH — accurate daily % from Yahoo quote API ──
+async function fetchLiveQuotes(symbols){
+  const cb = Date.now();
+  const fields = 'regularMarketPrice,regularMarketChange,regularMarketChangePercent,previousClose,regularMarketTime';
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.join(',')}&fields=${fields}&_cb=${cb}`;
+  for(const proxy of PROXIES){
+    try{
+      const r = await fetch(proxy(url), {signal:abort(15000)});
+      if(!r.ok) continue;
+      const data = await r.json();
+      const results = data?.quoteResponse?.result;
+      if(!results?.length) continue;
+      const out = {};
+      for(const q of results){
+        if(q.regularMarketChangePercent != null){
+          out[q.symbol] = {
+            price: q.regularMarketPrice,
+            dayChange: q.regularMarketChangePercent,
+            prevClose: q.previousClose,
+            dataDate: q.regularMarketTime
+              ? new Date(q.regularMarketTime*1000).toLocaleDateString('en-US',{month:'numeric',day:'numeric'})
+              : null,
+          };
+        }
+      }
+      if(Object.keys(out).length > 0) return out;
+    }catch(_){}
+  }
+  return {};
+}
+
 // ── INDIVIDUAL FALLBACK — for symbols that batch missed ────
 async function fetchOneETF(symbol){
   const {d1,d2} = dateRange(45);
@@ -1041,6 +1072,13 @@ async function loadAllData(){
     });
     renderETFGrid(); renderMarketOverview();
   }
+
+  // ── STEP 3: override daily % with accurate live quote data ──
+  const liveQuotes = await fetchLiveQuotes(symbols);
+  for(const [sym, q] of Object.entries(liveQuotes)){
+    if(etfData[sym]) Object.assign(etfData[sym], q);
+  }
+  if(Object.keys(liveQuotes).length > 0){ renderETFGrid(); renderMarketOverview(); }
 
   const nLoaded = Object.keys(etfData).length;
   const failed  = total - nLoaded;
