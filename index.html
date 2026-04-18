@@ -401,7 +401,8 @@ const PROXIES = [
 // ── BATCH FETCH — all ETFs in ONE request ──────────────────
 async function fetchAllBatch(symbols){
   const syms = symbols.join(',');
-  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${syms}&range=1mo&interval=1d&indicators=close&includeTimestamps=true`;
+  const cb = Date.now(); // cache-buster so proxies always fetch fresh data
+  const url = `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${syms}&range=1mo&interval=1d&indicators=close&includeTimestamps=true&_cb=${cb}`;
 
   for(const proxy of PROXIES){
     try{
@@ -429,8 +430,9 @@ async function fetchAllBatch(symbols){
 // ── INDIVIDUAL FALLBACK — for symbols that batch missed ────
 async function fetchOneETF(symbol){
   const {d1,d2} = dateRange(45);
-  const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&d1=${d1}&d2=${d2}&i=d`;
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1mo&interval=1d`;
+  const cb = Date.now();
+  const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&d1=${d1}&d2=${d2}&i=d&_cb=${cb}`;
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1mo&interval=1d&_cb=${cb}`;
   for(const proxy of PROXIES){
     // try Stooq first (CSV, less restricted)
     try{
