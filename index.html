@@ -427,53 +427,97 @@ async function fetchAllBatch(symbols){
   return {};
 }
 
-// ── LIVE QUOTE FETCH — accurate daily % using 5-day v8 chart ──
-// Yahoo v8 chart with range=5d always includes regularMarketChangePercent in meta
+// ── LIVE QUOTE FETCH — accurate daily % using multiple strategies ──
 async function fetchLiveQuotes(symbols){
   const results = await Promise.allSettled(symbols.map(async sym => {
     const cb = Date.now();
-    // Try v8 chart (range=5d) — meta always has regularMarketChangePercent
-    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=5d&interval=1d&_cb=${cb}`;
-    // Try v7 quote as alternative
-    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&_cb=${cb}`;
+    const now = Math.floor(Date.now()/1000);
+    const week = now - 7*24*3600;
+
+    // 4 strategies, tried in order per proxy
+    const urls = [
+      // 1. Yahoo v8 chart with unix timestamps (bypasses range cache)
+      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?period1=${week}&period2=${now}&interval=1d&_cb=${cb}`,
+      // 2. Yahoo v8 chart range=5d
+      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=5d&interval=1d&_cb=${cb}`,
+      // 3. Yahoo v10 quoteSummary
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${sym}?modules=price&_cb=${cb}`,
+      // 4. Stooq last 7 days (CSV — most proxy-friendly)
+      `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&d1=${fmtDate(week)}&d2=${fmtDate(now)}&i=d&_cb=${cb}`,
+    ];
+
     for(const proxy of PROXIES){
-      // Try chart endpoint
-      try{
-        const r = await fetch(proxy(chartUrl), {signal:abort(8000)});
-        if(r.ok){
+      // Strategy 1 & 2: Yahoo v8 chart
+      for(const url of urls.slice(0,2)){
+        try{
+          const r = await fetch(proxy(url), {signal:abort(8000)});
+          if(!r.ok) continue;
           const d = await r.json();
           const meta = d?.chart?.result?.[0]?.meta;
-          if(meta?.regularMarketChangePercent != null){
+          if(meta?.regularMarketChangePercent != null)
             return { sym, price: meta.regularMarketPrice, dayChange: meta.regularMarketChangePercent,
-              prevClose: meta.previousClose, dataDate: meta.regularMarketTime
-                ? new Date(meta.regularMarketTime*1000).toLocaleDateString('en-US',{month:'numeric',day:'numeric'}) : null };
+              prevClose: meta.previousClose, dataDate: fmtDisplayDate(meta.regularMarketTime) };
+          // If no regularMarketChangePercent, calculate from closes
+          const closes = d?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v=>v!=null);
+          if(closes?.length >= 2){
+            const last=closes[closes.length-1], prev=closes[closes.length-2];
+            return { sym, price: meta?.regularMarketPrice||last,
+              dayChange: (last-prev)/prev*100, dataDate: fmtDisplayDate(meta?.regularMarketTime) };
           }
-        }
-      }catch(_){}
-      // Try quote endpoint
+        }catch(_){}
+      }
+      // Strategy 3: Yahoo v10 quoteSummary
       try{
-        const r = await fetch(proxy(quoteUrl), {signal:abort(8000)});
+        const r = await fetch(proxy(urls[2]), {signal:abort(8000)});
         if(r.ok){
           const d = await r.json();
-          const q = d?.quoteResponse?.result?.[0];
-          if(q?.regularMarketChangePercent != null){
-            return { sym, price: q.regularMarketPrice, dayChange: q.regularMarketChangePercent,
-              prevClose: q.previousClose, dataDate: q.regularMarketTime
-                ? new Date(q.regularMarketTime*1000).toLocaleDateString('en-US',{month:'numeric',day:'numeric'}) : null };
+          const p = d?.quoteSummary?.result?.[0]?.price;
+          if(p?.regularMarketChangePercent?.raw != null)
+            return { sym, price: p.regularMarketPrice?.raw, dayChange: p.regularMarketChangePercent.raw*100,
+              prevClose: p.regularMarketPreviousClose?.raw, dataDate: fmtDisplayDate(p.regularMarketTime?.raw) };
+        }
+      }catch(_){}
+      // Strategy 4: Stooq CSV (most reliable through proxies)
+      try{
+        const r = await fetch(proxy(urls[3]), {signal:abort(8000)});
+        if(r.ok){
+          const t = await r.text();
+          if(t.includes(',') && t.length > 30){
+            const rows = t.trim().split('\n').slice(1)
+              .map(l=>{ const p=l.split(','); return {date:p[0],close:parseFloat(p[4])}; })
+              .filter(r=>r.date&&!isNaN(r.close)&&r.close>0)
+              .sort((a,b)=>a.date.localeCompare(b.date));
+            if(rows.length >= 2){
+              const last=rows[rows.length-1], prev=rows[rows.length-2];
+              const [,m,day]=last.date.split('-');
+              return { sym, price: last.close, dayChange: (last.close-prev.close)/prev.close*100,
+                prevClose: prev.close, dataDate:`${+m}/${+day}` };
+            }
           }
         }
       }catch(_){}
     }
     return null;
   }));
+
   const out = {};
   for(const r of results){
-    if(r.status === 'fulfilled' && r.value){
+    if(r.status==='fulfilled' && r.value){
       const { sym, ...data } = r.value;
       out[sym] = data;
     }
   }
   return out;
+}
+
+function fmtDate(unixSec){
+  const d = new Date(unixSec*1000);
+  return d.toISOString().slice(0,10).replace(/-/g,'');
+}
+function fmtDisplayDate(unixSec){
+  if(!unixSec) return null;
+  const d = new Date(unixSec*1000);
+  return `${d.getMonth()+1}/${d.getDate()}`;
 }
 
 // ── INDIVIDUAL FALLBACK — for symbols that batch missed ────
