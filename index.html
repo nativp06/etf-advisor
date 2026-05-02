@@ -195,6 +195,19 @@
   <span id="status-text">Initializing…</span>
 </div>
 
+<!-- AI SELECTION BANNER -->
+<div id="ai-selection-banner" style="display:none;background:linear-gradient(135deg,rgba(139,92,246,.12),rgba(59,130,246,.08));border-bottom:1px solid rgba(139,92,246,.25);padding:12px 24px;font-size:.82rem;line-height:1.6">
+  <div style="display:flex;align-items:flex-start;gap:10px;max-width:1600px;margin:0 auto">
+    <span style="font-size:1.1rem;margin-top:1px;flex-shrink:0">🤖</span>
+    <div style="flex:1;min-width:0">
+      <strong style="color:#a78bfa">AI-Curated ETF Universe</strong>
+      <span id="banner-count" style="color:var(--accent2);margin-left:6px"></span>
+      <div id="banner-rationale" style="color:var(--muted);margin-top:3px"></div>
+    </div>
+    <button onclick="resetToDefault()" title="Switch back to hardcoded default list" style="flex-shrink:0;background:none;border:1px solid rgba(139,92,246,.35);color:#a78bfa;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.75rem;white-space:nowrap;margin-top:1px">↺ Default List</button>
+  </div>
+</div>
+
 <main>
 
   <!-- MARKET OVERVIEW -->
@@ -240,8 +253,8 @@
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════
-// ETFs selected for 5-year growth potential — thematic & forward-looking
-const ETFS = [
+// Fallback list used when no API key or AI selection fails
+const DEFAULT_ETFS = [
   // Market Reference
   {symbol:'SPY',  name:'S&P 500',                sector:'Market Ref',    desc:'Benchmark for the overall US market. Core reference for all comparisons.'},
   {symbol:'QQQ',  name:'Nasdaq 100',             sector:'Market Ref',    desc:'Top 100 non-financial Nasdaq companies. Heavily weighted toward mega-cap tech.'},
@@ -266,6 +279,9 @@ const ETFS = [
   {symbol:'INDA', name:'India',                  sector:'Emerging',      desc:'iShares India ETF. India is the fastest-growing major economy — demographic and manufacturing tailwind.'},
 ];
 
+// Active ETF list — replaced dynamically at startup when AI key is present
+let ETFS = [...DEFAULT_ETFS];
+
 const INVESTORS = [
   {id:'market',   name:'Market Overview',   icon:'🌍', color:'#60a5fa'},
   {id:'analyst',  name:'Wall St. Analyst',  icon:'📊', color:'#34d399'},
@@ -285,6 +301,89 @@ let activeTab = 'market';
 let detailChartInstance = null;
 let sparkCharts = {};
 let isLoading = false;
+
+// ═══════════════════════════════════════════════════════════
+// AI-DRIVEN ETF SELECTION
+// Asks Claude which ETFs are most promising for the next 3-5 years.
+// Returns { etfs, rationale } or null on failure.
+// ═══════════════════════════════════════════════════════════
+async function fetchDynamicETFList() {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
+  const today = new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `You are a financial research AI. Today is ${today}.
+
+Select the 12-15 most promising US-listed ETFs for the next 3-5 years based on current macro trends, technological developments, and sector tailwinds.
+
+Requirements:
+- Must include SPY (S&P 500) as market benchmark
+- Focus on real, liquid ETFs with >$500M AUM that are currently tradeable on US exchanges
+- Cover diverse themes: AI/semiconductors, clean energy, biotech, cybersecurity, emerging markets, etc.
+- Use symbols that are fetchable from Yahoo Finance (standard US ticker symbols only)
+
+Return ONLY valid JSON in exactly this format (no other text, no markdown):
+{
+  "rationale": "One concise paragraph explaining the key macro/tech themes driving this selection for the next 3-5 years",
+  "etfs": [
+    {"symbol":"XXX","name":"Full ETF Name","sector":"Category","desc":"One-sentence investment thesis for why this ETF is compelling for 2025-2030"}
+  ]
+}`
+        }]
+      })
+    });
+
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const text = (data.content?.[0]?.text || '').trim();
+    if (!text) return null;
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed.etfs) || parsed.etfs.length < 5) return null;
+
+    const valid = parsed.etfs.filter(e => e.symbol && e.name && e.sector && e.desc);
+    if (valid.length < 5) return null;
+
+    return { etfs: valid, rationale: parsed.rationale || '' };
+  } catch(e) {
+    console.warn('Dynamic ETF selection failed:', e);
+    return null;
+  }
+}
+
+function showSelectionBanner(result) {
+  document.getElementById('banner-count').textContent = `· ${result.etfs.length} ETFs selected for 2025–2030`;
+  document.getElementById('banner-rationale').textContent = result.rationale;
+  document.getElementById('ai-selection-banner').style.display = 'block';
+}
+
+function hideSelectionBanner() {
+  document.getElementById('ai-selection-banner').style.display = 'none';
+}
+
+function resetToDefault() {
+  ETFS = [...DEFAULT_ETFS];
+  hideSelectionBanner();
+  loadAllData(true);
+}
 
 // ═══════════════════════════════════════════════════════════
 // SETTINGS — Claude API key only (ETF data needs no key)
@@ -592,7 +691,10 @@ function createSparkline(canvasId, labels, data, positive){
 // RENDER MARKET OVERVIEW
 // ═══════════════════════════════════════════════════════════
 function renderMarketOverview(){
-  const overview = ['SPY','QQQ','SOXX','BOTZ','ICLN','CIBR'];
+  // Always lead with SPY if present, then fill up to 6 from the active ETF list
+  const allSyms = ETFS.map(e => e.symbol);
+  const rest = allSyms.filter(s => s !== 'SPY').slice(0, 5);
+  const overview = allSyms.includes('SPY') ? ['SPY', ...rest] : allSyms.slice(0, 6);
   const el = document.getElementById('market-overview');
   el.innerHTML = overview.map(sym => {
     const d = etfData[sym];
@@ -1103,11 +1205,30 @@ function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 //   Step 1 — ONE batch request for current quotes (all symbols)
 //   Step 2 — Sequential chart requests with delay to avoid rate limiting
 // ═══════════════════════════════════════════════════════════
-async function loadAllData(){
+async function loadAllData(skipAISelection = false){
   if(isLoading) return;
   isLoading = true;
   etfData = {};
   aiResponses = {};
+
+  // ── AI ETF SELECTION ────────────────────────────────────
+  if(!skipAISelection && getApiKey()){
+    setStatus('🤖 AI is selecting the best ETFs for 2025–2030…', 'loading');
+    document.getElementById('etf-grid').innerHTML =
+      Array(6).fill('<div class="etf-card skeleton skel-card"></div>').join('');
+    document.getElementById('market-overview').innerHTML = '';
+
+    const selection = await fetchDynamicETFList();
+    if(selection){
+      ETFS = selection.etfs;
+      showSelectionBanner(selection);
+    } else {
+      ETFS = [...DEFAULT_ETFS];
+      hideSelectionBanner();
+    }
+  } else if(skipAISelection){
+    // reset triggered by user — keep ETFS as-is (already set to DEFAULT_ETFS by resetToDefault)
+  }
 
   setStatus('Fetching all ETFs in one request…', 'loading');
   document.getElementById('etf-grid').innerHTML =
