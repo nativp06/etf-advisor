@@ -290,6 +290,7 @@ const INVESTORS = [
   {id:'dalio',    name:'Ray Dalio',         icon:'⚖️', color:'#fb923c'},
   {id:'lynch',    name:'Peter Lynch',       icon:'📈', color:'#22d3ee'},
   {id:'soros',    name:'George Soros',      icon:'🌐', color:'#f472b6'},
+  {id:'burry',    name:'Michael Burry',     icon:'🩳', color:'#dc2626'},
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -1023,6 +1024,15 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
 <p>"The macro backdrop matters most. Interest rates, dollar strength, and geopolitical flows will determine which of these ETFs win over the next 12 months — not last month's price action."</p>
 <p><em>"It's not whether you're right or wrong, but how much money you make when you're right and how much you lose when you're wrong."</em></p>`);
 
+  const burryHtml = investorHtml('🩳','Michael Burry','#dc2626',`
+<p>"Everyone is celebrating ${pct(avgM)} average returns this month. ${nUp} ETFs up, ${nDown} down. You know what I see? Complacency. The same complacency I saw in 2006 when everyone told me I was wrong about housing. I was early. I was right."</p>
+<p>"ETFs are, by design, price-insensitive. When you buy an index fund, you don't care what you pay for the underlying securities — you just buy. Multiply that by trillions of dollars and you get markets that no longer reflect fundamentals. That is the passive investing bubble I've been warning about for years."</p>
+<p>"<strong>${t1.symbol}</strong> is up ${pct(t1.monthChange)} this month. The momentum chasers love it. I go the other direction — I want to know what's inside. What are the P/E ratios of the holdings? What are the debt levels? What happens when the passive flows reverse? Those are the questions nobody is asking."</p>
+<p>"<strong>${w1.symbol}</strong> down ${pct(w1.monthChange)} — the crowd is fleeing. But I don't follow the crowd. I look at the underlying businesses. If the fundamentals are sound and the price has dropped, that's exactly where I want to be. If the fundamentals are broken, then this is just the beginning of the decline."</p>
+<p>"The best sector this month is ${bestSec.s} with ${pct(bestSec.avg)} average return. When a theme becomes the consensus trade, I get nervous. Consensus is rarely where the money is made. I make money finding what the consensus is missing — or what it's hiding."</p>
+<p>"I don't care about monthly performance. I care about what something is worth versus what it costs. Find me an ETF trading at a genuine discount to intrinsic value and I'll get interested. Until then, I'm doing my own research, one balance sheet at a time."</p>
+<p><em>"I'm never wrong. I'm just early, which in most of the world is the same thing as being wrong."</em></p>`);
+
   aiResponses = {
     market:  marketHtml,
     analyst: analystHtml,
@@ -1031,6 +1041,7 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
     dalio:   dalioHtml,
     lynch:   lynchHtml,
     soros:   sorosHtml,
+    burry:   burryHtml,
   };
   activeTab = 'market';
   renderTabs();
@@ -1097,6 +1108,10 @@ Please provide a COMPREHENSIVE investment analysis structured EXACTLY with these
 ---
 # 🌐 George Soros — Global Macro
 [Reflexivity theory, identify market imbalances, bold contrarian positioning. Mention macro regime. First-person voice.]
+
+---
+# 🩳 Michael Burry — Deep Value & Contrarian
+[Skeptical of ETF investing and passive index flows. Focus on fundamental valuation, hidden risks, and overvalued consensus trades. Reference the passive investing bubble thesis and his housing crisis short. Be blunt and contrarian. First-person voice.]
 
 Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
 
@@ -1172,6 +1187,7 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
       dalio:   extract(fullText, 'Ray Dalio'),
       lynch:   extract(fullText, 'Peter Lynch'),
       soros:   extract(fullText, 'George Soros'),
+      burry:   extract(fullText, 'Michael Burry'),
     };
 
     // if sections parsed OK, store them
