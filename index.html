@@ -122,6 +122,27 @@
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
     .skel-card{height:180px}
 
+    /* ── RECOMMENDATION SUMMARY ── */
+    #rec-summary{display:none}
+    .rec-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:700px){.rec-summary-grid{grid-template-columns:1fr}}
+    .rec-col{background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+    .rec-col-header{padding:14px 18px;font-weight:700;font-size:.95rem;display:flex;align-items:center;gap:8px}
+    .rec-col-header.invest{background:rgba(16,185,129,.12);border-bottom:1px solid rgba(16,185,129,.2);color:var(--green)}
+    .rec-col-header.avoid{background:rgba(239,68,68,.12);border-bottom:1px solid rgba(239,68,68,.2);color:var(--red)}
+    .rec-col-header.hold{background:rgba(245,158,11,.12);border-bottom:1px solid rgba(245,158,11,.2);color:var(--yellow)}
+    .rec-row{display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.04)}
+    .rec-row:last-child{border-bottom:none}
+    .rec-row:hover{background:rgba(255,255,255,.03)}
+    .rec-sym{font-weight:700;font-size:.92rem;min-width:52px}
+    .rec-name{font-size:.75rem;color:var(--muted);flex:1;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .rec-pct{font-size:.85rem;font-weight:700;white-space:nowrap}
+    .rec-signal{font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;margin-left:8px}
+    .rec-signal.buy{background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+    .rec-signal.hold{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)}
+    .rec-signal.avoid{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+    .rec-empty{padding:20px 18px;color:var(--muted);font-size:.85rem;text-align:center}
+
     /* ── MISC ── */
     .close-btn{background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;padding:4px}
     .close-btn:hover{color:var(--text)}
@@ -220,6 +241,28 @@
   <section>
     <h2 class="section-title">📊 ETF Tracker <span id="etf-count" style="font-size:.75rem;font-weight:400;color:var(--muted)"></span></h2>
     <div class="etf-grid" id="etf-grid"></div>
+  </section>
+
+  <!-- RECOMMENDATION SUMMARY -->
+  <section id="rec-summary">
+    <h2 class="section-title">📋 Recommendation Summary</h2>
+    <div class="rec-summary-grid">
+      <div class="rec-col">
+        <div class="rec-col-header invest">✅ כן להשקיע</div>
+        <div id="rec-invest-list"></div>
+      </div>
+      <div class="rec-col">
+        <div class="rec-col-header avoid">❌ לא להשקיע</div>
+        <div id="rec-avoid-list"></div>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <div class="rec-col">
+        <div class="rec-col-header hold">⏸ המתן / Hold</div>
+        <div id="rec-hold-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))"></div>
+      </div>
+    </div>
+    <p style="margin-top:10px;font-size:.73rem;color:var(--muted)">⚠ מבוסס על מומנטום מחירים בלבד. אינו ייעוץ פיננסי.</p>
   </section>
 
   <!-- AI ANALYSIS -->
@@ -1046,6 +1089,35 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
   activeTab = 'market';
   renderTabs();
   switchTab('market');
+  renderRecommendationSummary(sorted, rating);
+}
+
+function renderRecommendationSummary(sorted, ratingFn){
+  function pct(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; }
+  function row(d, signalClass){
+    const etf = ETFS.find(e=>e.symbol===d.symbol);
+    const mUp = d.monthChange >= 0;
+    return `<div class="rec-row">
+      <div class="rec-sym">${d.symbol}</div>
+      <div class="rec-name">${etf?.name||''}</div>
+      <div class="rec-pct" style="color:${mUp?'var(--green)':'var(--red)'}">${pct(d.monthChange)}</div>
+      <div class="rec-signal ${signalClass}">${ratingFn(d).r}</div>
+    </div>`;
+  }
+
+  const invest = sorted.filter(d=>{ const {r}=ratingFn(d); return r==='BUY'||r==='STRONG BUY'; });
+  const hold   = sorted.filter(d=>ratingFn(d).r==='HOLD');
+  const avoid  = sorted.filter(d=>ratingFn(d).r==='AVOID');
+
+  document.getElementById('rec-invest-list').innerHTML =
+    invest.length ? invest.map(d=>row(d,'buy')).join('') : '<div class="rec-empty">אין המלצות קנייה כרגע</div>';
+  document.getElementById('rec-avoid-list').innerHTML =
+    avoid.length ? avoid.map(d=>row(d,'avoid')).join('') : '<div class="rec-empty">אין המלצות להימנע כרגע</div>';
+  document.getElementById('rec-hold-list').innerHTML =
+    hold.length ? hold.map(d=>row(d,'hold')).join('') : '<div class="rec-empty">אין</div>';
+
+  document.getElementById('rec-summary').style.display = 'block';
+  document.getElementById('rec-summary').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 // GENERATE AI ANALYSIS
@@ -1198,6 +1270,13 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
     if(!anySection) aiResponses['market'] = fullText; // fallback: dump all in market
 
     switchTab('market');
+    const allSorted = [...Object.values(etfData)].sort((a,b)=>b.monthChange-a.monthChange);
+    renderRecommendationSummary(allSorted, d=>{
+      if(d.dayChange>1&&d.monthChange>5)  return {r:'STRONG BUY',c:'var(--green)'};
+      if(d.dayChange>0&&d.monthChange>0)  return {r:'BUY',c:'var(--green)'};
+      if(d.monthChange>-3)                return {r:'HOLD',c:'var(--yellow)'};
+      return {r:'AVOID',c:'var(--red)'};
+    });
 
   } catch(err){
     el.innerHTML = `<div class="error-msg" style="white-space:pre-wrap">❌ ${err.message}</div>`;
