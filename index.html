@@ -142,6 +142,12 @@
     .rec-signal.hold{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)}
     .rec-signal.avoid{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
     .rec-empty{padding:20px 18px;color:var(--muted);font-size:.85rem;text-align:center}
+    .consensus-badge{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:8px;white-space:nowrap;margin-left:6px}
+    .consensus-badge.buy{background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+    .consensus-badge.hold{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid rgba(245,158,11,.3)}
+    .consensus-badge.avoid{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+    .analyst-dots{display:flex;gap:3px;margin-left:8px;flex-shrink:0}
+    .adot{width:16px;height:16px;border-radius:50%;font-size:.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
 
     /* ── MISC ── */
     .close-btn{background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;padding:4px}
@@ -341,6 +347,7 @@ const INVESTORS = [
 // ═══════════════════════════════════════════════════════════
 let etfData = {};
 let aiResponses = {};
+let aiRatings = null; // structured ratings from Claude API, keyed by symbol then analyst id
 let activeTab = 'market';
 let detailChartInstance = null;
 let sparkCharts = {};
@@ -954,14 +961,10 @@ function generateRuleAnalysis(){
     </div>`;
   }
 
-  function rating(d){
-    if(d.dayChange>1&&d.monthChange>5)  return {r:'STRONG BUY',c:'var(--green)'};
-    if(d.dayChange>0&&d.monthChange>0)  return {r:'BUY',c:'var(--green)'};
-    if(d.monthChange>-3)                return {r:'HOLD',c:'var(--yellow)'};
-    return {r:'AVOID',c:'var(--red)'};
-  }
+  // Wall St. Analyst scoring (momentum-based, kept as-is)
+  function ratingAnalyst(d){ return scoreAnalyst(d); }
   const rows = sorted.map(d=>{
-    const {r,c}=rating(d);
+    const {r,c}=ratingAnalyst(d);
     return `<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
       <td style="padding:7px 8px"><strong>${d.symbol}</strong></td>
       <td style="padding:7px 8px;color:var(--muted);font-size:.78rem">${ETFS.find(e=>e.symbol===d.symbol)?.sector||''}</td>
@@ -1089,32 +1092,153 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
   activeTab = 'market';
   renderTabs();
   switchTab('market');
-  renderRecommendationSummary(sorted, rating);
+  aiRatings = null;
+  renderRecommendationSummary(sorted);
 }
 
-function renderRecommendationSummary(sorted, ratingFn){
+// ═══════════════════════════════════════════════════════════
+// PER-ANALYST SCORING FUNCTIONS (rule-based, no API needed)
+// ═══════════════════════════════════════════════════════════
+const VOLATILITY_PLAYS = ['ARKK','ARKG','ARKW','BOTZ'];
+
+function scoreAnalyst(d){
+  // Wall St. Analyst: momentum-based
+  if(d.dayChange>1&&d.monthChange>5)  return {r:'STRONG BUY',c:'var(--green)'};
+  if(d.dayChange>0&&d.monthChange>0)  return {r:'BUY',c:'var(--green)'};
+  if(d.monthChange>-3)                return {r:'HOLD',c:'var(--yellow)'};
+  return {r:'AVOID',c:'var(--red)'};
+}
+
+function scoreBuffett(d){
+  const etf = ETFS.find(e=>e.symbol===d.symbol);
+  const sector = etf?.sector||'';
+  if(VOLATILITY_PLAYS.includes(d.symbol)) return {r:'AVOID',c:'var(--red)'};
+  if(d.monthChange>0 && ['Market Ref','Technology','Infrastructure'].includes(sector))
+    return {r:'BUY',c:'var(--green)'};
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+function scoreWood(d){
+  const etf = ETFS.find(e=>e.symbol===d.symbol);
+  const sector = etf?.sector||'';
+  if(['Market Ref','Infrastructure'].includes(sector)) return {r:'AVOID',c:'var(--red)'};
+  if(['AI/Robotics','Innovation','Biotech'].includes(sector) && d.monthChange>-10)
+    return {r:'STRONG BUY',c:'var(--green)'};
+  if(d.monthChange>2) return {r:'BUY',c:'var(--green)'};
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+function scaloDalio(d){
+  const abs = Math.abs(d.monthChange);
+  if(abs>8) return {r:'AVOID',c:'var(--red)'};
+  if(d.monthChange>=-2&&d.monthChange<=5) return {r:'BUY',c:'var(--green)'};
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+function scoreLynch(d){
+  if(d.dayChange>0&&d.monthChange>3) return {r:'BUY',c:'var(--green)'};
+  if(d.monthChange<-5) return {r:'BUY',c:'var(--green)'}; // contrarian
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+function scoreSoros(d){
+  if(d.dayChange<-1&&d.monthChange<-3) return {r:'AVOID',c:'var(--red)'};
+  if(d.monthChange>5) return {r:'BUY',c:'var(--green)'};
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+function scoreBurry(d){
+  if(d.monthChange>5) return {r:'AVOID',c:'var(--red)'}; // contrarian: avoids crowded
+  if(d.monthChange<-5) return {r:'BUY',c:'var(--green)'}; // buys falling
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+// Map of all 7 scoring functions keyed by analyst id
+const ANALYST_SCORERS = {
+  analyst: scoreAnalyst,
+  buffett: scoreBuffett,
+  wood:    scoreWood,
+  dalio:   scaloDalio,
+  lynch:   scoreLynch,
+  soros:   scoreSoros,
+  burry:   scoreBurry,
+};
+
+// Analyst display metadata for dot badges
+const ANALYST_META = {
+  analyst: {label:'WS', color:'#34d399'},
+  buffett: {label:'WB', color:'#f59e0b'},
+  wood:    {label:'CW', color:'#a78bfa'},
+  dalio:   {label:'RD', color:'#fb923c'},
+  lynch:   {label:'PL', color:'#22d3ee'},
+  soros:   {label:'GS', color:'#f472b6'},
+  burry:   {label:'MB', color:'#dc2626'},
+};
+
+// Compute consensus across all 7 analysts for one ETF data point.
+// Returns { buyVotes, holdVotes, avoidVotes, buyAnalysts, avoidAnalysts, holdAnalysts }
+function computeConsensus(d, overrides){
+  let buyVotes=0, holdVotes=0, avoidVotes=0;
+  const buyAnalysts=[], holdAnalysts=[], avoidAnalysts=[];
+  for(const [id, fn] of Object.entries(ANALYST_SCORERS)){
+    let r;
+    if(overrides && overrides[d.symbol] && overrides[d.symbol][id]){
+      r = overrides[d.symbol][id];
+    } else {
+      r = fn(d).r;
+    }
+    if(r==='BUY'||r==='STRONG BUY'){ buyVotes++; buyAnalysts.push(id); }
+    else if(r==='AVOID'){ avoidVotes++; avoidAnalysts.push(id); }
+    else { holdVotes++; holdAnalysts.push(id); }
+  }
+  return {buyVotes, holdVotes, avoidVotes, buyAnalysts, holdAnalysts, avoidAnalysts};
+}
+
+function renderRecommendationSummary(sorted){
   function pct(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; }
-  function row(d, signalClass){
+
+  function analystDots(analystIds){
+    return `<div class="analyst-dots">${analystIds.map(id=>{
+      const m = ANALYST_META[id];
+      return `<div class="adot" style="background:${m.color}" title="${id}">${m.label}</div>`;
+    }).join('')}</div>`;
+  }
+
+  function row(d, cons){
     const etf = ETFS.find(e=>e.symbol===d.symbol);
     const mUp = d.monthChange >= 0;
+    let badgeClass, badgeLabel, dotIds;
+    if(cons.buyVotes >= 4){
+      badgeClass='buy'; badgeLabel=`${cons.buyVotes}/7 BUY`; dotIds=cons.buyAnalysts;
+    } else if(cons.avoidVotes >= 4){
+      badgeClass='avoid'; badgeLabel=`${cons.avoidVotes}/7 AVOID`; dotIds=cons.avoidAnalysts;
+    } else {
+      badgeClass='hold'; badgeLabel=`${cons.holdVotes}/7 HOLD`; dotIds=cons.holdAnalysts;
+    }
     return `<div class="rec-row">
       <div class="rec-sym">${d.symbol}</div>
       <div class="rec-name">${etf?.name||''}</div>
       <div class="rec-pct" style="color:${mUp?'var(--green)':'var(--red)'}">${pct(d.monthChange)}</div>
-      <div class="rec-signal ${signalClass}">${ratingFn(d).r}</div>
+      <div class="consensus-badge ${badgeClass}">${badgeLabel}</div>
+      ${analystDots(dotIds)}
     </div>`;
   }
 
-  const invest = sorted.filter(d=>{ const {r}=ratingFn(d); return r==='BUY'||r==='STRONG BUY'; });
-  const hold   = sorted.filter(d=>ratingFn(d).r==='HOLD');
-  const avoid  = sorted.filter(d=>ratingFn(d).r==='AVOID');
+  // Compute consensus for each ETF, using aiRatings overrides if available
+  const withConsensus = sorted.map(d=>({d, cons: computeConsensus(d, aiRatings)}));
+
+  const invest = withConsensus.filter(x=>x.cons.buyVotes>=4)
+    .sort((a,b)=>b.cons.buyVotes-a.cons.buyVotes);
+  const avoid  = withConsensus.filter(x=>x.cons.avoidVotes>=4)
+    .sort((a,b)=>b.cons.avoidVotes-a.cons.avoidVotes);
+  const hold   = withConsensus.filter(x=>x.cons.buyVotes<4&&x.cons.avoidVotes<4);
 
   document.getElementById('rec-invest-list').innerHTML =
-    invest.length ? invest.map(d=>row(d,'buy')).join('') : '<div class="rec-empty">אין המלצות קנייה כרגע</div>';
+    invest.length ? invest.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין המלצות קנייה כרגע</div>';
   document.getElementById('rec-avoid-list').innerHTML =
-    avoid.length ? avoid.map(d=>row(d,'avoid')).join('') : '<div class="rec-empty">אין המלצות להימנע כרגע</div>';
+    avoid.length ? avoid.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין המלצות להימנע כרגע</div>';
   document.getElementById('rec-hold-list').innerHTML =
-    hold.length ? hold.map(d=>row(d,'hold')).join('') : '<div class="rec-empty">אין</div>';
+    hold.length ? hold.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין</div>';
 
   document.getElementById('rec-summary').style.display = 'block';
   document.getElementById('rec-summary').scrollIntoView({behavior:'smooth', block:'start'});
@@ -1146,12 +1270,23 @@ async function generateAnalysis(){
 
   const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
+  // Build symbol list for ratings block
+  const etfSymbols = ETFS.map(e=>e.symbol).filter(s=>etfData[s]).join(', ');
+
   const prompt = `You are a financial advisory AI. Today is ${todayStr}.
 
 Here is the last 30-day ETF performance data:
 ${summary}
 
-Please provide a COMPREHENSIVE investment analysis structured EXACTLY with these 7 sections (use the exact headers below):
+IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
+
+[RATINGS]
+{"ratings": {${ETFS.filter(e=>etfData[e.symbol]).map(e=>`"${e.symbol}": {"analyst":"BUY","buffett":"HOLD","wood":"HOLD","dalio":"HOLD","lynch":"HOLD","soros":"HOLD","burry":"HOLD"}`).join(', ')}}}
+[/RATINGS]
+
+Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, HOLD, or AVOID) based on each investor's philosophy applied to actual ETF data. Use these analyst IDs: analyst (Wall St. momentum), buffett (value/moat), wood (innovation/disruption), dalio (macro balance), lynch (GARP), soros (momentum/reflexivity), burry (contrarian/deep value).
+
+[ANALYSIS]
 
 ---
 # 🌍 Market Overview
@@ -1184,6 +1319,8 @@ Please provide a COMPREHENSIVE investment analysis structured EXACTLY with these
 ---
 # 🩳 Michael Burry — Deep Value & Contrarian
 [Skeptical of ETF investing and passive index flows. Focus on fundamental valuation, hidden risks, and overvalued consensus trades. Reference the passive investing bubble thesis and his housing crisis short. Be blunt and contrarian. First-person voice.]
+
+[/ANALYSIS]
 
 Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
 
@@ -1243,23 +1380,47 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
           const ev = JSON.parse(raw);
           if(ev.type==='content_block_delta' && ev.delta?.type==='text_delta'){
             fullText += ev.delta.text;
-            out.innerHTML = formatMarkdown(fullText);
+            // Strip [RATINGS] block and wrappers from live display
+            const displayText = fullText
+              .replace(/\[RATINGS\][\s\S]*?\[\/RATINGS\]\s*/,'')
+              .replace(/\[ANALYSIS\]\s*/,'')
+              .replace(/\s*\[\/ANALYSIS\]/,'');
+            out.innerHTML = formatMarkdown(displayText);
             out.scrollTop = out.scrollHeight;
           }
         } catch(_){}
       }
     }
 
+    // ── Parse [RATINGS]...[/RATINGS] block ──
+    aiRatings = null;
+    const ratingsMatch = fullText.match(/\[RATINGS\]([\s\S]*?)\[\/RATINGS\]/);
+    if(ratingsMatch){
+      try{
+        const parsed = JSON.parse(ratingsMatch[1].trim());
+        if(parsed.ratings && typeof parsed.ratings === 'object'){
+          aiRatings = parsed.ratings; // { "SPY": { analyst:"BUY", buffett:"HOLD", ... }, ... }
+        }
+      }catch(e){ console.warn('Failed to parse AI ratings JSON:', e); }
+    }
+
+    // Strip [RATINGS] block and [ANALYSIS]/[/ANALYSIS] wrappers from display text
+    const analysisText = fullText
+      .replace(/\[RATINGS\][\s\S]*?\[\/RATINGS\]\s*/,'')
+      .replace(/\[ANALYSIS\]\s*/,'')
+      .replace(/\s*\[\/ANALYSIS\]/,'')
+      .trim();
+
     // parse sections into tabs
     const sections = {
-      market:  extract(fullText, 'Market Overview'),
-      analyst: extract(fullText, 'Wall Street Analyst'),
-      buffett: extract(fullText, 'Warren Buffett'),
-      wood:    extract(fullText, 'Cathie Wood'),
-      dalio:   extract(fullText, 'Ray Dalio'),
-      lynch:   extract(fullText, 'Peter Lynch'),
-      soros:   extract(fullText, 'George Soros'),
-      burry:   extract(fullText, 'Michael Burry'),
+      market:  extract(analysisText, 'Market Overview'),
+      analyst: extract(analysisText, 'Wall Street Analyst'),
+      buffett: extract(analysisText, 'Warren Buffett'),
+      wood:    extract(analysisText, 'Cathie Wood'),
+      dalio:   extract(analysisText, 'Ray Dalio'),
+      lynch:   extract(analysisText, 'Peter Lynch'),
+      soros:   extract(analysisText, 'George Soros'),
+      burry:   extract(analysisText, 'Michael Burry'),
     };
 
     // if sections parsed OK, store them
@@ -1267,16 +1428,11 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
     for(const [k,v] of Object.entries(sections)){
       if(v){ aiResponses[k] = v; anySection = true; }
     }
-    if(!anySection) aiResponses['market'] = fullText; // fallback: dump all in market
+    if(!anySection) aiResponses['market'] = analysisText; // fallback: dump all in market
 
     switchTab('market');
     const allSorted = [...Object.values(etfData)].sort((a,b)=>b.monthChange-a.monthChange);
-    renderRecommendationSummary(allSorted, d=>{
-      if(d.dayChange>1&&d.monthChange>5)  return {r:'STRONG BUY',c:'var(--green)'};
-      if(d.dayChange>0&&d.monthChange>0)  return {r:'BUY',c:'var(--green)'};
-      if(d.monthChange>-3)                return {r:'HOLD',c:'var(--yellow)'};
-      return {r:'AVOID',c:'var(--red)'};
-    });
+    renderRecommendationSummary(allSorted);
 
   } catch(err){
     el.innerHTML = `<div class="error-msg" style="white-space:pre-wrap">❌ ${err.message}</div>`;
