@@ -340,6 +340,7 @@ const INVESTORS = [
   {id:'lynch',    name:'Peter Lynch',       icon:'📈', color:'#22d3ee'},
   {id:'soros',    name:'George Soros',      icon:'🌐', color:'#f472b6'},
   {id:'burry',    name:'Michael Burry',     icon:'🩳', color:'#dc2626'},
+  {id:'gates',    name:'Bill Gates',        icon:'💻', color:'#0ea5e9'},
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -1079,6 +1080,14 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
 <p>"I don't care about monthly performance. I care about what something is worth versus what it costs. Find me an ETF trading at a genuine discount to intrinsic value and I'll get interested. Until then, I'm doing my own research, one balance sheet at a time."</p>
 <p><em>"I'm never wrong. I'm just early, which in most of the world is the same thing as being wrong."</em></p>`);
 
+  const gatesHtml = investorHtml('💻','Bill Gates','#0ea5e9',`
+<p>"When I look at the market data — ${pct(avgM)} average return across these ETFs this month — I think about long-term technology trends the same way I thought about software in the 1980s. The question is never 'what's happening this month?' but 'what does the world look like in twenty years?'"</p>
+<p>"<strong>${t1.symbol}</strong> is the top performer this month at ${pct(t1.monthChange)}. I'm not interested in chasing returns. What interests me is whether the underlying companies are solving real problems — in healthcare, clean energy, food security, or software infrastructure. If they are, short-term volatility is irrelevant."</p>
+<p>"<strong>${w1.symbol}</strong> is down ${pct(w1.monthChange)}. Through Cascade Investment, I've always looked for businesses with durable advantages and the ability to reinvest at high rates of return. A temporary decline in a fundamentally sound ETF is worth examining carefully — it could be an opportunity."</p>
+<p>"The best sector this month is ${bestSec.s}. I'd note that the sectors I find most compelling for the next decade are healthcare innovation, clean energy, and enterprise technology infrastructure — not because they're trending, but because the world's problems demand solutions in exactly these areas."</p>
+<p>"I'm not a traditional Wall Street investor. I think like an engineer. I look for leverage points — places where a well-designed solution can scale to help billions of people. The ETFs that align with that mission are the ones I want to own."</p>
+<p><em>"Success is a lousy teacher. It seduces smart people into thinking they can't lose."</em></p>`);
+
   aiResponses = {
     market:  marketHtml,
     analyst: analystHtml,
@@ -1088,6 +1097,7 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
     lynch:   lynchHtml,
     soros:   sorosHtml,
     burry:   burryHtml,
+    gates:   gatesHtml,
   };
   activeTab = 'market';
   renderTabs();
@@ -1153,7 +1163,17 @@ function scoreBurry(d){
   return {r:'HOLD',c:'var(--yellow)'};
 }
 
-// Map of all 7 scoring functions keyed by analyst id
+function scoreGates(d){
+  const FAVORED = new Set(['QQQ','XLK','VGT','XLV','IBB','ICLN','XBI']);
+  const AVOID   = new Set(['ARKK','ARKG','ARKW']);
+  if(FAVORED.has(d.symbol)) return {r:'BUY',c:'var(--green)'};
+  if(AVOID.has(d.symbol))   return {r:'AVOID',c:'var(--red)'};
+  if(d.monthChange > 8)     return {r:'HOLD',c:'var(--yellow)'};
+  if(d.monthChange < -8)    return {r:'HOLD',c:'var(--yellow)'};
+  return {r:'HOLD',c:'var(--yellow)'};
+}
+
+// Map of all 8 scoring functions keyed by analyst id
 const ANALYST_SCORERS = {
   analyst: scoreAnalyst,
   buffett: scoreBuffett,
@@ -1162,6 +1182,7 @@ const ANALYST_SCORERS = {
   lynch:   scoreLynch,
   soros:   scoreSoros,
   burry:   scoreBurry,
+  gates:   scoreGates,
 };
 
 // Analyst display metadata for dot badges
@@ -1173,6 +1194,7 @@ const ANALYST_META = {
   lynch:   {label:'PL', color:'#22d3ee'},
   soros:   {label:'GS', color:'#f472b6'},
   burry:   {label:'MB', color:'#dc2626'},
+  gates:   {label:'BG', color:'#0ea5e9'},
 };
 
 // Compute consensus across all 7 analysts for one ETF data point.
@@ -1281,10 +1303,10 @@ ${summary}
 IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
 
 [RATINGS]
-{"ratings": {${ETFS.filter(e=>etfData[e.symbol]).map(e=>`"${e.symbol}": {"analyst":"BUY","buffett":"HOLD","wood":"HOLD","dalio":"HOLD","lynch":"HOLD","soros":"HOLD","burry":"HOLD"}`).join(', ')}}}
+{"ratings": {${ETFS.filter(e=>etfData[e.symbol]).map(e=>`"${e.symbol}": {"analyst":"BUY","buffett":"HOLD","wood":"HOLD","dalio":"HOLD","lynch":"HOLD","soros":"HOLD","burry":"HOLD","gates":"HOLD"}`).join(', ')}}}
 [/RATINGS]
 
-Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, HOLD, or AVOID) based on each investor's philosophy applied to actual ETF data. Use these analyst IDs: analyst (Wall St. momentum), buffett (value/moat), wood (innovation/disruption), dalio (macro balance), lynch (GARP), soros (momentum/reflexivity), burry (contrarian/deep value).
+Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, HOLD, or AVOID) based on each investor's philosophy applied to actual ETF data. Use these analyst IDs: analyst (Wall St. momentum), buffett (value/moat), wood (innovation/disruption), dalio (macro balance), lynch (GARP), soros (momentum/reflexivity), burry (contrarian/deep value), gates (long-term tech/healthcare/clean energy).
 
 [ANALYSIS]
 
@@ -1319,6 +1341,10 @@ Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, 
 ---
 # 🩳 Michael Burry — Deep Value & Contrarian
 [Skeptical of ETF investing and passive index flows. Focus on fundamental valuation, hidden risks, and overvalued consensus trades. Reference the passive investing bubble thesis and his housing crisis short. Be blunt and contrarian. First-person voice.]
+
+---
+# 💻 Bill Gates — Long-Term Technology & Impact Investing
+[Think like an engineer and philanthropist-investor. Focus on technology infrastructure, healthcare innovation, clean energy, and companies solving global-scale problems. Reference his Cascade Investment philosophy and Gates Foundation priorities. Not a momentum chaser — looks for 20-year trends. First-person voice.]
 
 [/ANALYSIS]
 
@@ -1421,6 +1447,7 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
       lynch:   extract(analysisText, 'Peter Lynch'),
       soros:   extract(analysisText, 'George Soros'),
       burry:   extract(analysisText, 'Michael Burry'),
+      gates:   extract(analysisText, 'Bill Gates'),
     };
 
     // if sections parsed OK, store them
