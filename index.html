@@ -290,6 +290,7 @@
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" id="rule-btn" onclick="generateRuleAnalysis()">⚡ Free Analysis</button>
+          <button class="btn btn-ghost btn-sm" id="macro-btn" onclick="generateMacroAnalysis()">🌏 Macro US/IL/Asia</button>
           <button class="btn btn-primary" id="generate-btn" onclick="generateAnalysis()">✨ AI Analysis</button>
         </div>
       </div>
@@ -341,6 +342,7 @@ const INVESTORS = [
   {id:'soros',    name:'George Soros',      icon:'🌐', color:'#f472b6'},
   {id:'burry',    name:'Michael Burry',     icon:'🩳', color:'#dc2626'},
   {id:'gates',    name:'Bill Gates',        icon:'💻', color:'#0ea5e9'},
+  {id:'macro',    name:'Macro: US/IL/Asia', icon:'🌏', color:'#38bdf8'},
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -1264,6 +1266,119 @@ function renderRecommendationSummary(sorted){
 
   document.getElementById('rec-summary').style.display = 'block';
   document.getElementById('rec-summary').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// ═══════════════════════════════════════════════════════════
+// MACRO REGIONAL ANALYSIS — USA, Israel, Far East
+// Separate lightweight request to avoid token overload
+// ═══════════════════════════════════════════════════════════
+async function generateMacroAnalysis(){
+  const apiKey = getApiKey();
+  if(!apiKey){ openSettings(); return; }
+
+  const btn = document.getElementById('macro-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Loading…';
+
+  // Build a concise ETF snapshot as context (prices + monthly change only)
+  const snapshot = ETFS.map(etf => {
+    const d = etfData[etf.symbol];
+    if(!d) return null;
+    return `${etf.symbol} (${etf.sector}): $${d.price.toFixed(2)}, 1M ${d.monthChange>0?'+':''}${d.monthChange.toFixed(1)}%`;
+  }).filter(Boolean).join('\n');
+
+  const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+
+  const prompt = `You are a global macro strategist. Today is ${todayStr}.
+
+Current ETF snapshot (for market context):
+${snapshot}
+
+Provide a focused macro analysis covering these three regions. Be concise but insightful — this is a standalone briefing:
+
+---
+## 🇺🇸 United States — Macro Outlook
+Analyze: Fed policy / interest rates, inflation trajectory, labor market, consumer health, AI/tech capex cycle, dollar strength, key risks and opportunities for US-exposed ETFs over the next 6–12 months.
+
+---
+## 🇮🇱 Israel — Macro Outlook
+Analyze: Post-October 7 economic recovery, defense spending surge, tech sector resilience (Start-Up Nation), currency (shekel) dynamics, geopolitical risk premium, foreign investment climate, and how global investors should think about Israeli exposure. Note any relevant ADRs or ETF proxies.
+
+---
+## 🌏 Far East (Japan, China, South Korea, Taiwan) — Macro Outlook
+Analyze: China stimulus and property sector recovery, Japan's historic rate normalization and yen dynamics, South Korea semiconductor cycle, Taiwan's geopolitical risk (TSMC dependency), and which Far East themes offer the best risk-adjusted opportunity for global ETF investors.
+
+---
+## 🔗 Cross-Regional Implications
+2–3 key takeaways on how these three regions interact — currency wars, supply chain shifts, capital flows — and which sectors or ETFs are most exposed to cross-regional macro shifts.
+
+Be direct, specific, and opinionated. Reference actual ETF symbols where relevant.`;
+
+  activeTab = 'macro';
+  renderTabs();
+  const el = document.getElementById('ai-content');
+  el.innerHTML = '<div class="generating"><div class="dot-pulse"></div> Fetching macro analysis for US / Israel / Far East…</div>';
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 3000,
+        stream: true,
+        messages: [{role:'user', content: prompt}]
+      })
+    });
+
+    if(!resp.ok){
+      let rawText = '';
+      try { rawText = await resp.text(); } catch(_){}
+      let errBody = {};
+      try { errBody = JSON.parse(rawText); } catch(_){}
+      const msg = errBody.error?.message || rawText || ('HTTP ' + resp.status);
+      throw new Error(msg);
+    }
+
+    let fullText = '';
+    el.innerHTML = '<div class="ai-output" id="stream-out"></div>';
+    const out = document.getElementById('stream-out');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      const chunk = decoder.decode(value, {stream:true});
+      for(const line of chunk.split('\n')){
+        if(!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if(raw==='[DONE]') continue;
+        try{
+          const ev = JSON.parse(raw);
+          if(ev.type==='content_block_delta' && ev.delta?.type==='text_delta'){
+            fullText += ev.delta.text;
+            out.innerHTML = formatMarkdown(fullText);
+            out.scrollTop = out.scrollHeight;
+          }
+        } catch(_){}
+      }
+    }
+
+    aiResponses['macro'] = fullText;
+    switchTab('macro');
+
+  } catch(err){
+    el.innerHTML = `<div class="error-msg" style="white-space:pre-wrap">❌ ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🌏 Macro US/IL/Asia';
+  }
 }
 
 // GENERATE AI ANALYSIS
