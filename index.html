@@ -1228,41 +1228,36 @@ function renderRecommendationSummary(sorted){
     }).join('')}</div>`;
   }
 
-  function row(d, cons){
+  function row(d, cons, panelType){
     const etf = ETFS.find(e=>e.symbol===d.symbol);
     const mUp = d.monthChange >= 0;
-    let badgeClass, badgeLabel, dotIds;
-    if(cons.buyVotes >= 4){
-      badgeClass='buy'; badgeLabel=`${cons.buyVotes}/7 BUY`; dotIds=cons.buyAnalysts;
-    } else if(cons.avoidVotes >= 4){
-      badgeClass='avoid'; badgeLabel=`${cons.avoidVotes}/7 AVOID`; dotIds=cons.avoidAnalysts;
-    } else {
-      badgeClass='hold'; badgeLabel=`${cons.holdVotes}/7 HOLD`; dotIds=cons.holdAnalysts;
-    }
+    const cfg = {
+      buy:   {cls:'buy',   label:`${cons.buyVotes}/7 BUY`,   dots:cons.buyAnalysts},
+      hold:  {cls:'hold',  label:`${cons.holdVotes}/7 HOLD`, dots:cons.holdAnalysts},
+      avoid: {cls:'avoid', label:`${cons.avoidVotes}/7 AVOID`,dots:cons.avoidAnalysts},
+    }[panelType];
     return `<div class="rec-row">
       <div class="rec-sym">${d.symbol}</div>
       <div class="rec-name">${etf?.name||''}</div>
       <div class="rec-pct" style="color:${mUp?'var(--green)':'var(--red)'}">${pct(d.monthChange)}</div>
-      <div class="consensus-badge ${badgeClass}">${badgeLabel}</div>
-      ${analystDots(dotIds)}
+      <div class="consensus-badge ${cfg.cls}">${cfg.label}</div>
+      ${analystDots(cfg.dots)}
     </div>`;
   }
 
   // Compute consensus for each ETF, using aiRatings overrides if available
   const withConsensus = sorted.map(d=>({d, cons: computeConsensus(d, aiRatings)}));
 
-  const invest = withConsensus.filter(x=>x.cons.buyVotes>=4)
-    .sort((a,b)=>b.cons.buyVotes-a.cons.buyVotes);
-  const avoid  = withConsensus.filter(x=>x.cons.avoidVotes>=4)
-    .sort((a,b)=>b.cons.avoidVotes-a.cons.avoidVotes);
-  const hold   = withConsensus.filter(x=>x.cons.buyVotes<4&&x.cons.avoidVotes<4);
+  const invest = withConsensus.filter(x=>x.cons.buyVotes>0).sort((a,b)=>b.cons.buyVotes-a.cons.buyVotes);
+  const avoid  = withConsensus.filter(x=>x.cons.avoidVotes>0).sort((a,b)=>b.cons.avoidVotes-a.cons.avoidVotes);
+  const hold   = withConsensus.filter(x=>x.cons.holdVotes>0).sort((a,b)=>b.cons.holdVotes-a.cons.holdVotes);
 
   document.getElementById('rec-invest-list').innerHTML =
-    invest.length ? invest.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין המלצות קנייה כרגע</div>';
+    invest.length ? invest.map(x=>row(x.d,x.cons,'buy')).join('') : '<div class="rec-empty">אין המלצות קנייה כרגע</div>';
   document.getElementById('rec-avoid-list').innerHTML =
-    avoid.length ? avoid.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין המלצות להימנע כרגע</div>';
+    avoid.length ? avoid.map(x=>row(x.d,x.cons,'avoid')).join('') : '<div class="rec-empty">אין המלצות להימנע כרגע</div>';
   document.getElementById('rec-hold-list').innerHTML =
-    hold.length ? hold.map(x=>row(x.d,x.cons)).join('') : '<div class="rec-empty">אין</div>';
+    hold.length ? hold.map(x=>row(x.d,x.cons,'hold')).join('') : '<div class="rec-empty">אין</div>';
 
   document.getElementById('rec-summary').style.display = 'block';
   document.getElementById('rec-summary').scrollIntoView({behavior:'smooth', block:'start'});
