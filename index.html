@@ -395,7 +395,7 @@ Return ONLY valid JSON in exactly this format (no other text, no markdown):
 {
   "rationale": "One concise paragraph explaining the key macro/tech themes driving this selection for the next 3-5 years",
   "etfs": [
-    {"symbol":"XXX","name":"Full ETF Name","sector":"Category","desc":"One-sentence investment thesis for why this ETF is compelling for 2025-2030"}
+    {"symbol":"XXX","name":"Full ETF Name","sector":"Category","desc":"One-sentence investment thesis for why this ETF is compelling for ${new Date().getFullYear()}-${new Date().getFullYear()+5}"}
   ]
 }`
         }]
@@ -424,7 +424,8 @@ Return ONLY valid JSON in exactly this format (no other text, no markdown):
 }
 
 function showSelectionBanner(result) {
-  document.getElementById('banner-count').textContent = `· ${result.etfs.length} ETFs selected for 2025–2030`;
+  const yr = new Date().getFullYear();
+  document.getElementById('banner-count').textContent = `· ${result.etfs.length} ETFs selected for ${yr}–${yr+5}`;
   document.getElementById('banner-rationale').textContent = result.rationale;
   document.getElementById('ai-selection-banner').style.display = 'block';
 }
@@ -1601,7 +1602,8 @@ async function loadAllData(skipAISelection = false){
 
   // ── AI ETF SELECTION ────────────────────────────────────
   if(!skipAISelection && getApiKey()){
-    setStatus('🤖 AI is selecting the best ETFs for 2025–2030…', 'loading');
+    const _yr = new Date().getFullYear();
+    setStatus(`🤖 AI is selecting the best ETFs for ${_yr}–${_yr+5}…`, 'loading');
     document.getElementById('etf-grid').innerHTML =
       Array(6).fill('<div class="etf-card skeleton skel-card"></div>').join('');
     document.getElementById('market-overview').innerHTML = '';
