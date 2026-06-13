@@ -263,19 +263,6 @@
                oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')addCustomETF()" />
         <input type="text" id="add-etf-name" placeholder="Name (optional)" maxlength="60"
                onkeydown="if(event.key==='Enter')addCustomETF()" />
-        <select id="add-etf-sector" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:.85rem;outline:none;cursor:pointer">
-          <option value="Technology">Technology</option>
-          <option value="AI Hardware">AI Hardware</option>
-          <option value="AI/Robotics">AI/Robotics</option>
-          <option value="Innovation">Innovation</option>
-          <option value="Biotech">Biotech</option>
-          <option value="Clean Energy">Clean Energy</option>
-          <option value="Cybersecurity">Cybersecurity</option>
-          <option value="Infrastructure">Infrastructure</option>
-          <option value="Emerging">Emerging Markets</option>
-          <option value="Market Ref">Market Reference</option>
-          <option value="Other">Other</option>
-        </select>
         <button class="btn btn-primary btn-sm" id="add-etf-confirm" onclick="addCustomETF()">Add to List</button>
         <button class="btn btn-ghost btn-sm" onclick="closeAddETF()">Cancel</button>
         <span id="add-etf-msg" style="font-size:.8rem"></span>
@@ -476,6 +463,41 @@ function resetToDefault() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ETF INFO LOOKUP — name + sector from Yahoo Finance
+// ═══════════════════════════════════════════════════════════
+function mapYahooCategory(cat){
+  const c = (cat||'').toLowerCase();
+  if(c.includes('technology')||c.includes('semiconductor')||c.includes('software')||c.includes('internet')) return 'Technology';
+  if(c.includes('health')||c.includes('biotech')||c.includes('pharma')||c.includes('medical')) return 'Biotech';
+  if(c.includes('alternative energy')||c.includes('clean')||c.includes('solar')||c.includes('wind')||c.includes('renewable')) return 'Clean Energy';
+  if(c.includes('infrastructure')||c.includes('utility')||c.includes('industrial')||c.includes('real estate')) return 'Infrastructure';
+  if(c.includes('robot')||c.includes('artificial intelligence')||c.includes('automation')) return 'AI/Robotics';
+  if(c.includes('cyber')||c.includes('security')) return 'Cybersecurity';
+  if(c.includes('emerging')||c.includes('china')||c.includes('india')||c.includes('pacific asia')||c.includes('latin')) return 'Emerging';
+  if(c.includes('innovation')||c.includes('disrupt')||c.includes('ark')) return 'Innovation';
+  if(c.includes('large blend')||c.includes('large growth')||c.includes('s&p')||c.includes('nasdaq')||c.includes('diversified')) return 'Market Ref';
+  return 'Technology';
+}
+
+async function fetchETFInfo(symbol){
+  const cb = Date.now();
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=price,fundProfile&_cb=${cb}`;
+  for(const proxy of PROXIES){
+    try{
+      const r = await fetch(proxy(url), {signal:abort(8000)});
+      if(!r.ok) continue;
+      const d = await r.json();
+      const result = d?.quoteSummary?.result?.[0];
+      if(!result) continue;
+      const name   = result.price?.longName || result.price?.shortName || null;
+      const cat    = result.fundProfile?.categoryName || '';
+      return { name, sector: mapYahooCategory(cat), category: cat };
+    }catch(_){}
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
 // ADD CUSTOM ETF
 // ═══════════════════════════════════════════════════════════
 function toggleAddETF(){
@@ -493,32 +515,40 @@ function closeAddETF(){
 }
 
 async function addCustomETF(){
-  const sym    = (document.getElementById('add-etf-sym').value || '').trim().toUpperCase();
-  const name   = (document.getElementById('add-etf-name').value || '').trim();
-  const sector = document.getElementById('add-etf-sector').value || 'Technology';
-  const msg    = document.getElementById('add-etf-msg');
-  const btn    = document.getElementById('add-etf-confirm');
+  const sym        = (document.getElementById('add-etf-sym').value || '').trim().toUpperCase();
+  const manualName = (document.getElementById('add-etf-name').value || '').trim();
+  const msg        = document.getElementById('add-etf-msg');
+  const btn        = document.getElementById('add-etf-confirm');
 
   if(!sym){ msg.style.color='var(--red)'; msg.textContent='Enter a ticker symbol.'; return; }
   if(ETFS.some(e => e.symbol === sym)){
     msg.style.color='var(--yellow)'; msg.textContent=`${sym} is already in the list.`; return;
   }
 
-  btn.disabled = true; btn.textContent = 'Loading…'; msg.textContent = '';
+  btn.disabled = true; btn.textContent = 'Loading…';
+  msg.style.color = 'var(--muted)'; msg.textContent = 'Detecting ETF info…';
 
   try{
-    let data = null;
-    const batch = await fetchAllBatch([sym]);
-    if(batch[sym]){ data = batch[sym]; }
-    else{
+    // Fetch price data and ETF metadata in parallel
+    const [batchResult, etfInfo] = await Promise.all([
+      fetchAllBatch([sym]),
+      fetchETFInfo(sym),
+    ]);
+
+    let data = batchResult[sym] || null;
+    if(!data){
       try{ data = await fetchOneETF(sym); }catch(_){}
     }
     if(!data){
       msg.style.color='var(--red)'; msg.textContent=`Could not load data for "${sym}". Check the ticker.`;
       return;
     }
+
+    const name   = manualName || etfInfo?.name || sym;
+    const sector = etfInfo?.sector || 'Technology';
+
     etfData[sym] = data;
-    ETFS.push({ symbol:sym, name: name||sym, sector, desc:'Manually added.' });
+    ETFS.push({ symbol:sym, name, sector, desc:'Manually added.' });
 
     const banner = document.getElementById('ai-selection-banner');
     if(banner.style.display !== 'none'){
@@ -526,10 +556,11 @@ async function addCustomETF(){
       document.getElementById('banner-count').textContent = `· ${ETFS.length} ETFs selected for ${yr}–${yr+5}`;
     }
     renderETFGrid(); renderMarketOverview(); renderTabs();
-    msg.style.color='var(--green)'; msg.textContent=`✓ ${sym} added!`;
+    msg.style.color='var(--green)';
+    msg.textContent=`✓ ${sym} added — ${name} · ${sector}`;
     document.getElementById('add-etf-sym').value = '';
     document.getElementById('add-etf-name').value = '';
-    setTimeout(()=>{ msg.textContent=''; }, 2500);
+    setTimeout(()=>{ msg.textContent=''; }, 4000);
   } catch(e){
     msg.style.color='var(--red)'; msg.textContent=`Error: ${e.message}`;
   } finally {
