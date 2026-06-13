@@ -259,10 +259,23 @@
     </h2>
     <div class="add-etf-bar" id="add-etf-bar">
       <div class="arow">
-        <input type="text" id="add-etf-sym" placeholder="Ticker (e.g. VTI)" maxlength="10"
+        <input type="text" id="add-etf-sym" placeholder="Ticker (e.g. QTUM)" maxlength="10"
                oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')addCustomETF()" />
         <input type="text" id="add-etf-name" placeholder="Name (optional)" maxlength="60"
                onkeydown="if(event.key==='Enter')addCustomETF()" />
+        <select id="add-etf-sector" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:.85rem;outline:none;cursor:pointer">
+          <option value="Technology">Technology</option>
+          <option value="AI Hardware">AI Hardware</option>
+          <option value="AI/Robotics">AI/Robotics</option>
+          <option value="Innovation">Innovation</option>
+          <option value="Biotech">Biotech</option>
+          <option value="Clean Energy">Clean Energy</option>
+          <option value="Cybersecurity">Cybersecurity</option>
+          <option value="Infrastructure">Infrastructure</option>
+          <option value="Emerging">Emerging Markets</option>
+          <option value="Market Ref">Market Reference</option>
+          <option value="Other">Other</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="add-etf-confirm" onclick="addCustomETF()">Add to List</button>
         <button class="btn btn-ghost btn-sm" onclick="closeAddETF()">Cancel</button>
         <span id="add-etf-msg" style="font-size:.8rem"></span>
@@ -480,10 +493,11 @@ function closeAddETF(){
 }
 
 async function addCustomETF(){
-  const sym = (document.getElementById('add-etf-sym').value || '').trim().toUpperCase();
-  const name = (document.getElementById('add-etf-name').value || '').trim();
-  const msg  = document.getElementById('add-etf-msg');
-  const btn  = document.getElementById('add-etf-confirm');
+  const sym    = (document.getElementById('add-etf-sym').value || '').trim().toUpperCase();
+  const name   = (document.getElementById('add-etf-name').value || '').trim();
+  const sector = document.getElementById('add-etf-sector').value || 'Technology';
+  const msg    = document.getElementById('add-etf-msg');
+  const btn    = document.getElementById('add-etf-confirm');
 
   if(!sym){ msg.style.color='var(--red)'; msg.textContent='Enter a ticker symbol.'; return; }
   if(ETFS.some(e => e.symbol === sym)){
@@ -504,7 +518,7 @@ async function addCustomETF(){
       return;
     }
     etfData[sym] = data;
-    ETFS.push({ symbol:sym, name: name||sym, sector:'Custom', desc:'Manually added.' });
+    ETFS.push({ symbol:sym, name: name||sym, sector, desc:'Manually added.' });
 
     const banner = document.getElementById('ai-selection-banner');
     if(banner.style.display !== 'none'){
@@ -1106,15 +1120,30 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
   const t1=top3[0], t2=top3[1]||top3[0], w1=bot3[0], w2=bot3[1]||bot3[0];
 
   // Surface any ETFs the user manually added so every investor mentions them
-  const customETFs = ETFS.filter(e => e.sector === 'Custom' && etfData[e.symbol]);
+  const customETFs = ETFS.filter(e => e.desc === 'Manually added.' && etfData[e.symbol]);
   function customNote(){
     if(!customETFs.length) return '';
     const items = customETFs.map(etf => {
       const d = etfData[etf.symbol];
       const label = etf.name !== etf.symbol ? `${etf.symbol} (${etf.name})` : etf.symbol;
-      return `<strong>${label}</strong> — Month: <span style="color:${d.monthChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.monthChange)}</span>, Today: <span style="color:${d.dayChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.dayChange)}</span>`;
-    }).join('<br>');
-    return `<p style="margin-top:14px;padding:10px 14px;background:rgba(59,130,246,.08);border-radius:8px;border-left:3px solid var(--accent);font-size:.85rem"><strong>📌 Your added ETF${customETFs.length>1?'s':''}:</strong><br>${items}</p>`;
+      const badges = Object.entries(ANALYST_SCORERS).map(([id, fn]) => {
+        const {r, c} = fn(d);
+        const m = ANALYST_META[id];
+        return `<span title="${id}" style="display:inline-block;background:${c};color:#fff;padding:1px 7px;border-radius:4px;font-size:.65rem;font-weight:700;margin:1px 2px;opacity:.9">${m.label}: ${r}</span>`;
+      }).join('');
+      return `<div>
+        <strong>${label}</strong> &nbsp;
+        <span style="color:${d.monthChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.monthChange)} month</span>
+        &nbsp;·&nbsp;
+        <span style="color:${d.dayChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.dayChange)} today</span>
+        &nbsp;·&nbsp;<span style="color:var(--muted);font-size:.8rem">Sector: ${etf.sector}</span>
+        <div style="margin-top:5px">${badges}</div>
+      </div>`;
+    }).join('<div style="height:10px"></div>');
+    return `<div style="margin-top:14px;padding:12px 16px;background:rgba(59,130,246,.08);border-radius:8px;border-left:3px solid var(--accent)">
+      <div style="font-size:.8rem;font-weight:700;color:var(--accent2);margin-bottom:8px">📌 Your Added ETF${customETFs.length>1?'s':''} — Expert Ratings</div>
+      <div style="font-size:.85rem;line-height:1.8">${items}</div>
+    </div>`;
   }
 
   function investorHtml(icon, name, color, content){
@@ -1496,9 +1525,9 @@ async function generateAnalysis(){
     return `${etf.symbol} (${etf.name}): Price $${d.price.toFixed(2)} | Day ${d.dayChange>0?'+':''}${d.dayChange.toFixed(2)}% | 1-Month ${d.monthChange>0?'+':''}${d.monthChange.toFixed(2)}% | Sector: ${etf.sector}`;
   }).filter(Boolean).join('\n');
 
-  const customSymbols = ETFS.filter(e => e.sector === 'Custom' && etfData[e.symbol]).map(e => e.symbol);
+  const customSymbols = ETFS.filter(e => e.desc === 'Manually added.' && etfData[e.symbol]).map(e => e.symbol);
   const customInstruction = customSymbols.length > 0
-    ? `\nCRITICAL: The user manually added these ETFs and specifically wants each expert to comment on them: ${customSymbols.join(', ')}. Every investor section MUST explicitly mention and give a clear BUY/HOLD/AVOID opinion on each of these tickers.`
+    ? `\nCRITICAL USER REQUEST: The user manually added ${customSymbols.join(', ')} and demands each investor persona give an explicit BUY/HOLD/AVOID verdict on ${customSymbols.length === 1 ? 'it' : 'each one'} with reasoning. Do NOT skip or generalize these tickers.`
     : '';
 
   const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
@@ -1506,10 +1535,10 @@ async function generateAnalysis(){
   // Build symbol list for ratings block
   const etfSymbols = ETFS.map(e=>e.symbol).filter(s=>etfData[s]).join(', ');
 
-  const prompt = `You are a financial advisory AI. Today is ${todayStr}.
+  const prompt = `You are a financial advisory AI. Today is ${todayStr}.${customInstruction}
 
 Here is the last 30-day ETF performance data:
-${summary}${customInstruction}
+${summary}
 
 IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
 
