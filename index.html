@@ -1105,10 +1105,22 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
   // ── INVESTOR REVIEWS ─────────────────────────────────────
   const t1=top3[0], t2=top3[1]||top3[0], w1=bot3[0], w2=bot3[1]||bot3[0];
 
+  // Surface any ETFs the user manually added so every investor mentions them
+  const customETFs = ETFS.filter(e => e.sector === 'Custom' && etfData[e.symbol]);
+  function customNote(){
+    if(!customETFs.length) return '';
+    const items = customETFs.map(etf => {
+      const d = etfData[etf.symbol];
+      const label = etf.name !== etf.symbol ? `${etf.symbol} (${etf.name})` : etf.symbol;
+      return `<strong>${label}</strong> — Month: <span style="color:${d.monthChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.monthChange)}</span>, Today: <span style="color:${d.dayChange>=0?'var(--green)':'var(--red)'};font-weight:700">${pct(d.dayChange)}</span>`;
+    }).join('<br>');
+    return `<p style="margin-top:14px;padding:10px 14px;background:rgba(59,130,246,.08);border-radius:8px;border-left:3px solid var(--accent);font-size:.85rem"><strong>📌 Your added ETF${customETFs.length>1?'s':''}:</strong><br>${items}</p>`;
+  }
+
   function investorHtml(icon, name, color, content){
     return `<div style="border-left:3px solid ${color};padding-left:16px;margin-bottom:8px">
       <h2>${icon} ${name} — ${today}</h2></div>
-      <div style="line-height:1.9;font-size:.9rem">${content}</div>
+      <div style="line-height:1.9;font-size:.9rem">${content}${customNote()}</div>
       <p style="margin-top:16px;font-size:.73rem;color:var(--muted)">⚠ Simulated perspective based on price data. Not financial advice.</p>`;
   }
 
@@ -1484,6 +1496,11 @@ async function generateAnalysis(){
     return `${etf.symbol} (${etf.name}): Price $${d.price.toFixed(2)} | Day ${d.dayChange>0?'+':''}${d.dayChange.toFixed(2)}% | 1-Month ${d.monthChange>0?'+':''}${d.monthChange.toFixed(2)}% | Sector: ${etf.sector}`;
   }).filter(Boolean).join('\n');
 
+  const customSymbols = ETFS.filter(e => e.sector === 'Custom' && etfData[e.symbol]).map(e => e.symbol);
+  const customInstruction = customSymbols.length > 0
+    ? `\nCRITICAL: The user manually added these ETFs and specifically wants each expert to comment on them: ${customSymbols.join(', ')}. Every investor section MUST explicitly mention and give a clear BUY/HOLD/AVOID opinion on each of these tickers.`
+    : '';
+
   const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
   // Build symbol list for ratings block
@@ -1492,7 +1509,7 @@ async function generateAnalysis(){
   const prompt = `You are a financial advisory AI. Today is ${todayStr}.
 
 Here is the last 30-day ETF performance data:
-${summary}
+${summary}${customInstruction}
 
 IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
 
