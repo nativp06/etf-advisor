@@ -157,6 +157,15 @@
     .refresh-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:.8rem;display:flex;align-items:center;gap:6px}
     .refresh-btn:hover{background:var(--bg3);color:var(--text)}
 
+    /* ── ADD ETF BAR ── */
+    .add-etf-bar{display:none;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:16px}
+    .add-etf-bar.open{display:block}
+    .add-etf-bar .arow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .add-etf-bar input{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.9rem;outline:none}
+    .add-etf-bar input:focus{border-color:var(--accent)}
+    #add-etf-sym{width:130px}
+    #add-etf-name{flex:1;min-width:160px}
+
     @media(max-width:600px){
       main{padding:12px}
       .etf-grid{grid-template-columns:1fr 1fr}
@@ -245,7 +254,20 @@
 
   <!-- ETF CARDS -->
   <section>
-    <h2 class="section-title">📊 ETF Tracker <span id="etf-count" style="font-size:.75rem;font-weight:400;color:var(--muted)"></span></h2>
+    <h2 class="section-title">📊 ETF Tracker <span id="etf-count" style="font-size:.75rem;font-weight:400;color:var(--muted)"></span>
+      <button class="btn btn-ghost btn-sm" onclick="toggleAddETF()" style="margin-left:auto;font-size:.75rem">＋ Add ETF</button>
+    </h2>
+    <div class="add-etf-bar" id="add-etf-bar">
+      <div class="arow">
+        <input type="text" id="add-etf-sym" placeholder="Ticker (e.g. VTI)" maxlength="10"
+               oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')addCustomETF()" />
+        <input type="text" id="add-etf-name" placeholder="Name (optional)" maxlength="60"
+               onkeydown="if(event.key==='Enter')addCustomETF()" />
+        <button class="btn btn-primary btn-sm" id="add-etf-confirm" onclick="addCustomETF()">Add to List</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeAddETF()">Cancel</button>
+        <span id="add-etf-msg" style="font-size:.8rem"></span>
+      </div>
+    </div>
     <div class="etf-grid" id="etf-grid"></div>
   </section>
 
@@ -438,6 +460,67 @@ function resetToDefault() {
   ETFS = [...DEFAULT_ETFS];
   hideSelectionBanner();
   loadAllData(true);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADD CUSTOM ETF
+// ═══════════════════════════════════════════════════════════
+function toggleAddETF(){
+  const bar = document.getElementById('add-etf-bar');
+  if(bar.classList.contains('open')){ closeAddETF(); return; }
+  bar.classList.add('open');
+  document.getElementById('add-etf-sym').focus();
+}
+
+function closeAddETF(){
+  document.getElementById('add-etf-bar').classList.remove('open');
+  document.getElementById('add-etf-sym').value = '';
+  document.getElementById('add-etf-name').value = '';
+  document.getElementById('add-etf-msg').textContent = '';
+}
+
+async function addCustomETF(){
+  const sym = (document.getElementById('add-etf-sym').value || '').trim().toUpperCase();
+  const name = (document.getElementById('add-etf-name').value || '').trim();
+  const msg  = document.getElementById('add-etf-msg');
+  const btn  = document.getElementById('add-etf-confirm');
+
+  if(!sym){ msg.style.color='var(--red)'; msg.textContent='Enter a ticker symbol.'; return; }
+  if(ETFS.some(e => e.symbol === sym)){
+    msg.style.color='var(--yellow)'; msg.textContent=`${sym} is already in the list.`; return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Loading…'; msg.textContent = '';
+
+  try{
+    let data = null;
+    const batch = await fetchAllBatch([sym]);
+    if(batch[sym]){ data = batch[sym]; }
+    else{
+      try{ data = await fetchOneETF(sym); }catch(_){}
+    }
+    if(!data){
+      msg.style.color='var(--red)'; msg.textContent=`Could not load data for "${sym}". Check the ticker.`;
+      return;
+    }
+    etfData[sym] = data;
+    ETFS.push({ symbol:sym, name: name||sym, sector:'Custom', desc:'Manually added.' });
+
+    const banner = document.getElementById('ai-selection-banner');
+    if(banner.style.display !== 'none'){
+      const yr = new Date().getFullYear();
+      document.getElementById('banner-count').textContent = `· ${ETFS.length} ETFs selected for ${yr}–${yr+5}`;
+    }
+    renderETFGrid(); renderMarketOverview(); renderTabs();
+    msg.style.color='var(--green)'; msg.textContent=`✓ ${sym} added!`;
+    document.getElementById('add-etf-sym').value = '';
+    document.getElementById('add-etf-name').value = '';
+    setTimeout(()=>{ msg.textContent=''; }, 2500);
+  } catch(e){
+    msg.style.color='var(--red)'; msg.textContent=`Error: ${e.message}`;
+  } finally {
+    btn.disabled=false; btn.textContent='Add to List';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
