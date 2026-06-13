@@ -548,6 +548,11 @@ async function addCustomETF(){
     const sector = etfInfo?.sector || 'Technology';
 
     etfData[sym] = data;
+
+    // Correct the daily % with accurate live quote (same step loadAllData uses)
+    const liveQ = await fetchLiveQuotes([sym]);
+    if(liveQ[sym]) Object.assign(etfData[sym], liveQ[sym]);
+
     ETFS.push({ symbol:sym, name, sector, desc:'Manually added.' });
 
     const banner = document.getElementById('ai-selection-banner');
