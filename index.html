@@ -364,6 +364,7 @@ const INVESTORS = [
   {id:'soros',    name:'George Soros',      icon:'🌐', color:'#f472b6'},
   {id:'burry',    name:'Michael Burry',     icon:'🩳', color:'#dc2626'},
   {id:'gates',    name:'Bill Gates',        icon:'💻', color:'#0ea5e9'},
+  {id:'algo',     name:'Algo Trader',       icon:'⚡', color:'#06b6d4'},
   {id:'macro',    name:'Macro: US/IL/Asia', icon:'🌏', color:'#38bdf8'},
 ];
 
@@ -1251,6 +1252,75 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
 <p>"I'm not a traditional Wall Street investor. I think like an engineer. I look for leverage points — places where a well-designed solution can scale to help billions of people. The ETFs that align with that mission are the ones I want to own."</p>
 <p><em>"Success is a lousy teacher. It seduces smart people into thinking they can't lose."</em></p>`);
 
+  // ── ALGO TRADER ──────────────────────────────────────────
+  function algoMetrics(d){
+    const cl=d.closes||[], n=cl.length;
+    if(n<5) return {sma5:d.price,sma20:d.price,vol:0,trend:'—',score:45,sig:'HOLD',sigC:'var(--yellow)'};
+    const sma5  = cl.slice(-5).reduce((a,b)=>a+b,0)/5;
+    const sma20 = cl.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
+    const rets  = cl.slice(1).map((c,i)=>(c-cl[i])/cl[i]*100);
+    const avgR  = rets.reduce((a,b)=>a+b,0)/rets.length;
+    const vol   = Math.sqrt(rets.reduce((s,r)=>s+(r-avgR)**2,0)/rets.length);
+    const {r:sig,c:sigC} = scoreAlgo(d);
+    const score = sig==='STRONG BUY'?90:sig==='BUY'?68:sig==='AVOID'?18:44;
+    return {sma5,sma20,vol,trend:sma5>sma20?'↑ Bull':'↓ Bear',score,sig,sigC};
+  }
+  const algoData   = sorted.map(d=>({d,...algoMetrics(d)}));
+  const algoBuys   = algoData.filter(s=>s.sig==='BUY'||s.sig==='STRONG BUY').sort((a,b)=>b.score-a.score).slice(0,4);
+  const algoAvoids = algoData.filter(s=>s.sig==='AVOID').sort((a,b)=>a.score-b.score).slice(0,3);
+
+  function bar(score,c){ return `<div style="display:inline-block;vertical-align:middle;width:60px;height:6px;background:var(--bg4);border-radius:3px;margin-left:6px"><div style="width:${score}%;height:100%;background:${c};border-radius:3px"></div></div>`; }
+  function algoCard(s,borderCol){
+    const etfName = ETFS.find(e=>e.symbol===s.d.symbol)?.name||'';
+    return `<div style="margin:5px 0;padding:9px 14px;background:rgba(${borderCol},.07);border-radius:8px;border:1px solid rgba(${borderCol},.25);font-size:.83rem">
+      <strong>${s.d.symbol}</strong><span style="color:var(--muted);font-size:.76rem;margin-left:6px">${etfName}</span>
+      <span style="float:right;color:${s.sigC};font-weight:700;font-size:.76rem">${s.sig}</span>
+      <div style="margin-top:5px;color:var(--muted);font-size:.76rem">
+        SCORE: <strong style="color:var(--text)">${s.score}</strong>${bar(s.score,s.sigC)}
+        &nbsp;· TREND: <strong style="color:${s.trend.startsWith('↑')?'var(--green)':'var(--red)'}">${s.trend}</strong>
+        &nbsp;· σ: <strong style="color:var(--text)">${s.vol.toFixed(1)}%</strong>
+        &nbsp;· 1M: <strong style="color:${s.d.monthChange>=0?'var(--green)':'var(--red)'}">${pct(s.d.monthChange)}</strong>
+        &nbsp;· 1D: <strong style="color:${s.d.dayChange>=0?'var(--green)':'var(--red)'}">${pct(s.d.dayChange)}</strong>
+      </div></div>`; }
+
+  const algoRows = algoData.map(s=>{
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+      <td style="padding:5px 7px;font-weight:700;font-family:monospace">${s.d.symbol}</td>
+      <td style="padding:5px 7px;text-align:center"><span style="color:${s.sigC};font-weight:700;font-size:.73rem">${s.sig}</span></td>
+      <td style="padding:5px 7px;text-align:right">
+        <div style="display:inline-flex;align-items:center;gap:5px">
+          ${bar(s.score,s.sigC)}
+          <span style="color:var(--muted);font-size:.73rem;min-width:20px">${s.score}</span>
+        </div>
+      </td>
+      <td style="padding:5px 7px;text-align:center;color:${s.trend.startsWith('↑')?'var(--green)':'var(--red)'};;font-size:.8rem">${s.trend}</td>
+      <td style="padding:5px 7px;text-align:right;color:var(--muted);font-size:.8rem">${s.vol.toFixed(1)}%</td>
+      <td style="padding:5px 7px;text-align:right;color:${s.d.dayChange>=0?'var(--green)':'var(--red)'};;font-size:.8rem">${pct(s.d.dayChange)}</td>
+      <td style="padding:5px 7px;text-align:right;color:${s.d.monthChange>=0?'var(--green)':'var(--red)'};;font-size:.8rem">${pct(s.d.monthChange)}</td>
+    </tr>`;
+  }).join('');
+
+  const algoHtml = investorHtml('⚡','Algo Trader','#06b6d4',`
+<p style="color:var(--muted);font-size:.76rem;letter-spacing:.5px;font-family:monospace">SCAN COMPLETE · ${all.length} INSTRUMENTS · BULLISH ${nUp} · BEARISH ${nDown} · ${today}</p>
+<h3 style="color:var(--green);margin:14px 0 8px">▲ TOP LONG SIGNALS</h3>
+${algoBuys.length ? algoBuys.map(s=>algoCard(s,'16,185,129')).join('') : '<p style="color:var(--muted)">NO LONG SIGNALS DETECTED</p>'}
+<h3 style="color:var(--red);margin:16px 0 8px">▼ AVOID SIGNALS</h3>
+${algoAvoids.length ? algoAvoids.map(s=>algoCard(s,'239,68,68')).join('') : '<p style="color:var(--muted)">NO BEARISH SIGNALS DETECTED</p>'}
+<h3 style="margin:16px 0 8px">📊 FULL SIGNAL MATRIX</h3>
+<table style="width:100%;border-collapse:collapse;font-size:.8rem">
+  <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+    <th style="text-align:left;padding:5px 7px">TICKER</th>
+    <th style="text-align:center;padding:5px 7px">SIGNAL</th>
+    <th style="text-align:right;padding:5px 7px">STRENGTH</th>
+    <th style="text-align:center;padding:5px 7px">TREND</th>
+    <th style="text-align:right;padding:5px 7px">VOL σ</th>
+    <th style="text-align:right;padding:5px 7px">1D %</th>
+    <th style="text-align:right;padding:5px 7px">1M %</th>
+  </tr></thead>
+  <tbody>${algoRows}</tbody>
+</table>
+<p style="margin-top:10px;font-size:.71rem;color:var(--muted)">Signals: SMA5/SMA20 crossover · monthly + daily momentum · volatility-adjusted scoring. Not financial advice.</p>`);
+
   aiResponses = {
     market:  marketHtml,
     analyst: analystHtml,
@@ -1261,6 +1331,7 @@ ${bot3.map(d=>card(d,'239,68,68')).join('')}
     soros:   sorosHtml,
     burry:   burryHtml,
     gates:   gatesHtml,
+    algo:    algoHtml,
   };
   activeTab = 'market';
   renderTabs();
@@ -1337,6 +1408,29 @@ function scoreGates(d){
 }
 
 // Map of all 8 scoring functions keyed by analyst id
+function scoreAlgo(d){
+  const cl = d.closes||[];
+  const n  = cl.length;
+  if(n < 5) return scoreAnalyst(d);
+  const sma5  = cl.slice(-5).reduce((a,b)=>a+b,0)/5;
+  const sma20 = cl.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
+  const rets  = cl.slice(1).map((c,i)=>(c-cl[i])/cl[i]*100);
+  const avgR  = rets.reduce((a,b)=>a+b,0)/rets.length;
+  const vol   = Math.sqrt(rets.reduce((s,r)=>s+(r-avgR)**2,0)/rets.length);
+  let score = 0;
+  if(sma5 > sma20)               score += 2;  // golden cross
+  if(d.monthChange > 5)          score += 2;  // strong monthly momentum
+  if(d.monthChange < -5)         score -= 2;  // weak monthly momentum
+  if(d.dayChange > 0.5)          score += 1;  // positive day
+  if(d.dayChange < -0.5)         score -= 1;  // negative day
+  if(vol > 3 && d.monthChange<0) score -= 1;  // high vol + downtrend
+  if(vol < 1.5 && d.monthChange>2) score += 1; // low vol + uptrend
+  if(score >= 4) return {r:'STRONG BUY', c:'var(--green)'};
+  if(score >= 2) return {r:'BUY',        c:'var(--green)'};
+  if(score <= -2) return {r:'AVOID',     c:'var(--red)'};
+  return {r:'HOLD', c:'var(--yellow)'};
+}
+
 const ANALYST_SCORERS = {
   analyst: scoreAnalyst,
   buffett: scoreBuffett,
@@ -1346,6 +1440,7 @@ const ANALYST_SCORERS = {
   soros:   scoreSoros,
   burry:   scoreBurry,
   gates:   scoreGates,
+  algo:    scoreAlgo,
 };
 
 // Analyst display metadata for dot badges
@@ -1358,6 +1453,7 @@ const ANALYST_META = {
   soros:   {label:'GS', color:'#f472b6'},
   burry:   {label:'MB', color:'#dc2626'},
   gates:   {label:'BG', color:'#0ea5e9'},
+  algo:    {label:'AT', color:'#06b6d4'},
 };
 
 // Compute consensus across all 7 analysts for one ETF data point.
@@ -1579,7 +1675,7 @@ ${summary}
 IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
 
 [RATINGS]
-{"ratings": {${ETFS.filter(e=>etfData[e.symbol]).map(e=>`"${e.symbol}": {"analyst":"BUY","buffett":"HOLD","wood":"HOLD","dalio":"HOLD","lynch":"HOLD","soros":"HOLD","burry":"HOLD","gates":"HOLD"}`).join(', ')}}}
+{"ratings": {${ETFS.filter(e=>etfData[e.symbol]).map(e=>`"${e.symbol}": {"analyst":"BUY","buffett":"HOLD","wood":"HOLD","dalio":"HOLD","lynch":"HOLD","soros":"HOLD","burry":"HOLD","gates":"HOLD","algo":"HOLD"}`).join(', ')}}}
 [/RATINGS]
 
 Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, HOLD, or AVOID) based on each investor's philosophy applied to actual ETF data. Use these analyst IDs: analyst (Wall St. momentum), buffett (value/moat), wood (innovation/disruption), dalio (macro balance), lynch (GARP), soros (momentum/reflexivity), burry (contrarian/deep value), gates (long-term tech/healthcare/clean energy).
@@ -1621,6 +1717,10 @@ Replace each placeholder rating above with the correct rating (BUY, STRONG BUY, 
 ---
 # 💻 Bill Gates — Long-Term Technology & Impact Investing
 [Think like an engineer and philanthropist-investor. Focus on technology infrastructure, healthcare innovation, clean energy, and companies solving global-scale problems. Reference his Cascade Investment philosophy and Gates Foundation priorities. Not a momentum chaser — looks for 20-year trends. First-person voice.]
+
+---
+# ⚡ Algo Trader — Quantitative Signal System
+[Output as an algorithmic trading system. No emotions or opinions — pure quant analysis. For each ETF compute and state: momentum score (0-100), SMA trend (bullish/bearish crossover), volatility rating (low/medium/high), signal (STRONG BUY / BUY / HOLD / AVOID). List top 3 long signals and top 3 avoid signals with scores. Use trading system language: "SIGNAL TRIGGERED", "CROSSOVER DETECTED", "VOLATILITY FLAG". Format clearly with signal strength numbers.]
 
 [/ANALYSIS]
 
@@ -1724,6 +1824,7 @@ Be specific, opinionated, and detailed. Reference actual ETF symbols.`;
       soros:   extract(analysisText, 'George Soros'),
       burry:   extract(analysisText, 'Michael Burry'),
       gates:   extract(analysisText, 'Bill Gates'),
+      algo:    extract(analysisText, 'Algo Trader'),
     };
 
     // if sections parsed OK, store them
