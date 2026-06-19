@@ -1553,10 +1553,16 @@ async function generateMacroAnalysis(){
 
   const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
+  // Fetch live news for macro-relevant symbols
+  btn.textContent = '📰 Fetching news…';
+  const macroNewsMap = await fetchETFNews(ETFS.map(e=>e.symbol).filter(s=>etfData[s]));
+  const macroNewsSection = buildNewsSection(macroNewsMap);
+  btn.textContent = '⏳ Loading…';
+
   const prompt = `You are a global macro strategist. Today is ${todayStr}.
 
 Current ETF snapshot (for market context):
-${snapshot}
+${snapshot}${macroNewsSection}
 
 Provide a focused macro analysis covering these three regions. Be concise but insightful — this is a standalone briefing:
 
@@ -1674,6 +1680,12 @@ async function generateAnalysis(){
     ? `\nCRITICAL USER REQUEST: The user manually added ${customSymbols.join(', ')} and demands each investor persona give an explicit BUY/HOLD/AVOID verdict on ${customSymbols.length === 1 ? 'it' : 'each one'} with reasoning. Do NOT skip or generalize these tickers.`
     : '';
 
+  // Fetch live news headlines for all ETFs
+  btn.textContent = '📰 Fetching news…';
+  const newsMap = await fetchETFNews(ETFS.map(e=>e.symbol).filter(s=>etfData[s]));
+  const newsSection = buildNewsSection(newsMap);
+  btn.textContent = '⏳ Generating…';
+
   const todayStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
 
   // Build symbol list for ratings block
@@ -1682,7 +1694,7 @@ async function generateAnalysis(){
   const prompt = `You are a financial advisory AI. Today is ${todayStr}.${customInstruction}
 
 Here is the last 30-day ETF performance data:
-${summary}
+${summary}${newsSection}
 
 IMPORTANT: Your response MUST start with a structured ratings block, then the narrative analysis. Follow this exact format:
 
@@ -1865,6 +1877,44 @@ function extract(text, heading){
   return m ? m[1].trim() : null;
 }
 function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+// ═══════════════════════════════════════════════════════════
+// NEWS FETCH — Yahoo Finance headlines per ETF (no API key needed)
+// ═══════════════════════════════════════════════════════════
+async function fetchETFNews(symbols){
+  const sevenDaysAgo = Math.floor(Date.now()/1000) - 7*24*3600;
+  const results = await Promise.allSettled(
+    symbols.map(async sym => {
+      const cb = Date.now();
+      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${sym}&lang=en-US&region=US&quotesCount=0&newsCount=5&_cb=${cb}`;
+      for(const proxy of PROXIES){
+        try{
+          const r = await fetch(proxy(url), {signal:abort(5000)});
+          if(!r.ok) continue;
+          const d = await r.json();
+          const items = (d?.news||[])
+            .filter(n => n.title && (!n.providerPublishTime || n.providerPublishTime >= sevenDaysAgo))
+            .slice(0,3).map(n=>n.title);
+          if(items.length) return {sym, items};
+        }catch(_){}
+      }
+      return {sym, items:[]};
+    })
+  );
+  const out = {};
+  for(const res of results){
+    if(res.status==='fulfilled' && res.value?.items?.length)
+      out[res.value.sym] = res.value.items;
+  }
+  return out;
+}
+
+function buildNewsSection(newsMap){
+  const entries = Object.entries(newsMap);
+  if(!entries.length) return '';
+  return '\n\nRECENT NEWS HEADLINES (past 7 days — incorporate into your analysis):\n' +
+    entries.map(([sym,items])=>`${sym}: ${items.join(' | ')}`).join('\n');
+}
 
 // ═══════════════════════════════════════════════════════════
 // SECTOR VERIFICATION — fetch correct sector for every ETF from Yahoo Finance
