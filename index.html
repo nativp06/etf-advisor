@@ -466,17 +466,29 @@ function resetToDefault() {
 // ═══════════════════════════════════════════════════════════
 // ETF INFO LOOKUP — name + sector from Yahoo Finance
 // ═══════════════════════════════════════════════════════════
-function mapYahooCategory(cat){
+function mapYahooCategory(cat, name){
   const c = (cat||'').toLowerCase();
-  if(c.includes('technology')||c.includes('semiconductor')||c.includes('software')||c.includes('internet')) return 'Technology';
+  const n = (name||'').toLowerCase();
+  // Name-based detection is more specific than Yahoo's broad categories
+  if(n.includes('semiconductor')||n.includes('chip'))                                        return 'AI Hardware';
+  if(n.includes('cyber')||n.includes('hack'))                                                return 'Cybersecurity';
+  if(n.includes('robot')||n.includes('quantum')||n.includes('artificial intel'))             return 'AI/Robotics';
+  if(n.includes('clean energy')||n.includes('solar')||n.includes('wind')||n.includes('lithium')||n.includes('uranium')) return 'Clean Energy';
+  if(n.includes('biotech')||n.includes('genomic')||n.includes('pharmaceutical')||n.includes('life science')) return 'Biotech';
+  if(n.includes('infrastructure'))                                                           return 'Infrastructure';
+  if(n.includes('india ')||n.includes('china ')||n.includes('emerging')||n.includes('japan ')||n.includes('korea')) return 'Emerging';
+  if(n.includes('innovation')||n.includes('disrupt'))                                        return 'Innovation';
+  // Yahoo category fallback
+  if(c.includes('semiconductor'))                                                            return 'AI Hardware';
+  if(c.includes('technology')||c.includes('software')||c.includes('internet'))              return 'Technology';
   if(c.includes('health')||c.includes('biotech')||c.includes('pharma')||c.includes('medical')) return 'Biotech';
-  if(c.includes('alternative energy')||c.includes('clean')||c.includes('solar')||c.includes('wind')||c.includes('renewable')) return 'Clean Energy';
-  if(c.includes('infrastructure')||c.includes('utility')||c.includes('industrial')||c.includes('real estate')) return 'Infrastructure';
-  if(c.includes('robot')||c.includes('artificial intelligence')||c.includes('automation')) return 'AI/Robotics';
-  if(c.includes('cyber')||c.includes('security')) return 'Cybersecurity';
-  if(c.includes('emerging')||c.includes('china')||c.includes('india')||c.includes('pacific asia')||c.includes('latin')) return 'Emerging';
-  if(c.includes('innovation')||c.includes('disrupt')||c.includes('ark')) return 'Innovation';
-  if(c.includes('large blend')||c.includes('large growth')||c.includes('s&p')||c.includes('nasdaq')||c.includes('diversified')) return 'Market Ref';
+  if(c.includes('alternative energy')||c.includes('clean')||c.includes('solar')||c.includes('wind')) return 'Clean Energy';
+  if(c.includes('infrastructure')||c.includes('utility')||c.includes('industrial'))         return 'Infrastructure';
+  if(c.includes('robot')||c.includes('artificial intel')||c.includes('automation')||c.includes('quantum')) return 'AI/Robotics';
+  if(c.includes('cyber')||c.includes('security'))                                            return 'Cybersecurity';
+  if(c.includes('emerging')||c.includes('china')||c.includes('india')||c.includes('pacific')) return 'Emerging';
+  if(c.includes('innovation')||c.includes('disrupt'))                                        return 'Innovation';
+  if(c.includes('large blend')||c.includes('large growth')||c.includes('s&p')||c.includes('nasdaq')) return 'Market Ref';
   return 'Technology';
 }
 
@@ -492,7 +504,7 @@ async function fetchETFInfo(symbol){
       if(!result) continue;
       const name   = result.price?.longName || result.price?.shortName || null;
       const cat    = result.fundProfile?.categoryName || '';
-      return { name, sector: mapYahooCategory(cat), category: cat };
+      return { name, sector: mapYahooCategory(cat, name), category: cat };
     }catch(_){}
   }
   return null;
@@ -1855,6 +1867,22 @@ function extract(text, heading){
 function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
 // ═══════════════════════════════════════════════════════════
+// SECTOR VERIFICATION — fetch correct sector for every ETF from Yahoo Finance
+// ═══════════════════════════════════════════════════════════
+async function fetchAllETFSectors(){
+  const results = await Promise.allSettled(ETFS.map(etf => fetchETFInfo(etf.symbol)));
+  results.forEach((res, i) => {
+    if(res.status === 'fulfilled' && res.value){
+      ETFS[i].sector = res.value.sector;
+      // Also update name if not already set meaningfully
+      if(res.value.name && (ETFS[i].name === ETFS[i].symbol || !ETFS[i].name)){
+        ETFS[i].name = res.value.name;
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // LOAD ALL ETF DATA
 // Strategy:
 //   Step 1 — ONE batch request for current quotes (all symbols)
@@ -1919,6 +1947,11 @@ async function loadAllData(skipAISelection = false){
     if(etfData[sym]) Object.assign(etfData[sym], q);
   }
   if(Object.keys(liveQuotes).length > 0){ renderETFGrid(); renderMarketOverview(); }
+
+  // ── STEP 4: verify sectors from Yahoo Finance ────────────
+  setStatus('Verifying ETF sectors…', 'loading');
+  await fetchAllETFSectors();
+  renderETFGrid();
 
   const nLoaded = Object.keys(etfData).length;
   const failed  = total - nLoaded;
