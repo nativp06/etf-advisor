@@ -639,6 +639,30 @@ function dateRange(){
 }
 
 // ── PARSERS ────────────────────────────────────────────────
+
+// Compute the TRUE daily % change from a daily-candle series.
+// Yahoo's most recent daily candle close is frequently null (the current /
+// still-forming session) while meta.regularMarketPrice holds the actual latest
+// price. Naively comparing the last two non-null candle closes therefore yields
+// the PREVIOUS day's change, not today's, while the price shown is today's —
+// the exact mismatch that made SOXX read +3.94% instead of −5.64%.
+// Fix: "current" = live price; "previous close" = the most recent candle that
+// predates the current market day.
+function utcDay(sec){ return new Date(sec*1000).toISOString().slice(0,10); }
+function computeDayChange(timestamps, closes, price, mktTime){
+  const pairs = (timestamps||[]).map((t,i)=>({t, c:closes?.[i]})).filter(p=>p.c!=null);
+  if(!pairs.length) return { prevClose:null, dayChange:0 };
+  const cur   = price != null ? price : pairs[pairs.length-1].c;
+  const today = utcDay(mktTime || pairs[pairs.length-1].t);
+  let prevClose = null;
+  for(let i=pairs.length-1; i>=0; i--){
+    if(utcDay(pairs[i].t) >= today) continue;   // skip current/forming session candle
+    prevClose = pairs[i].c; break;
+  }
+  if(prevClose == null) prevClose = pairs.length >= 2 ? pairs[pairs.length-2].c : null;
+  return { prevClose, dayChange: prevClose ? (cur-prevClose)/prevClose*100 : 0 };
+}
+
 function parseSparkResult(res){
   // Yahoo spark API result object for one symbol
   const meta = res.meta || {};
@@ -650,11 +674,12 @@ function parseSparkResult(res){
   const lb   = pairs.map(p=>{ const d=new Date(p.t*1000); return `${d.getMonth()+1}/${d.getDate()}`; });
   const last = cl[cl.length-1], first=cl[0];
   const price = meta.regularMarketPrice || last;
-  const prevC = meta.previousClose || meta.chartPreviousClose;
-  // Use Yahoo's pre-calculated change percent when available — more accurate than manual calc
-  const dayChange = meta.regularMarketChangePercent != null
-    ? meta.regularMarketChangePercent
-    : prevC ? (price-prevC)/prevC*100 : 0;
+  // Daily change computed from the candle series + live price (handles the
+  // null/forming latest candle). meta.chartPreviousClose is the close from
+  // BEFORE the whole range window (≈1 month ago for range=1mo), so it is NOT a
+  // valid daily reference — used only as a last resort if no candles qualify.
+  const { prevClose, dayChange } = computeDayChange(res.timestamp, closes, price, meta.regularMarketTime);
+  const prevC = prevClose != null ? prevClose : (meta.previousClose || meta.chartPreviousClose);
   const dataDate = meta.regularMarketTime
     ? new Date(meta.regularMarketTime*1000).toLocaleDateString('en-US',{month:'numeric',day:'numeric'})
     : null;
@@ -662,7 +687,7 @@ function parseSparkResult(res){
     closes:cl, labels:lb, price,
     prevClose:prevC,
     dayChange,
-    monthChange:(last-first)/first*100,
+    monthChange:(price-first)/first*100,
     volume: meta.regularMarketVolume||0,
     dataDate,
   };
@@ -753,16 +778,17 @@ async function fetchLiveQuotes(symbols){
           const r = await fetch(proxy(url), {signal:abort(8000)});
           if(!r.ok) continue;
           const d = await r.json();
-          const meta = d?.chart?.result?.[0]?.meta;
-          if(meta?.regularMarketChangePercent != null)
-            return { sym, price: meta.regularMarketPrice, dayChange: meta.regularMarketChangePercent,
-              prevClose: meta.previousClose, dataDate: fmtDisplayDate(meta.regularMarketTime) };
-          // If no regularMarketChangePercent, calculate from closes
-          const closes = d?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v=>v!=null);
-          if(closes?.length >= 2){
-            const last=closes[closes.length-1], prev=closes[closes.length-2];
-            return { sym, price: meta?.regularMarketPrice||last,
-              dayChange: (last-prev)/prev*100, dataDate: fmtDisplayDate(meta?.regularMarketTime) };
+          const result = d?.chart?.result?.[0];
+          const meta = result?.meta;
+          // Always derive the daily change from candles + live price so a null
+          // latest candle can't make us report the previous day's move.
+          const rawCloses = result?.indicators?.quote?.[0]?.close;
+          const price = meta?.regularMarketPrice;
+          if(result?.timestamp && rawCloses){
+            const { prevClose, dayChange } = computeDayChange(result.timestamp, rawCloses, price, meta?.regularMarketTime);
+            if(prevClose != null)
+              return { sym, price: price ?? rawCloses.filter(v=>v!=null).slice(-1)[0],
+                dayChange, prevClose, dataDate: fmtDisplayDate(meta?.regularMarketTime) };
           }
         }catch(_){}
       }
